@@ -168,6 +168,10 @@ export default function App() {
 
   const [weightLog, setWeightLog] = useState(()=>load("nc_weight",[]));
   const [weightInput, setWeightInput] = useState("");
+  const [foodSearch, setFoodSearch] = useState("");
+  const [foodResults, setFoodResults] = useState([]);
+  const [foodSearching, setFoodSearching] = useState(false);
+  const [chartRange, setChartRange] = useState(30);
   const [isRecording, setIsRecording] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState(""); // "" | "listening" | "processing"
   const mediaRecorderRef = useRef(null);
@@ -185,6 +189,32 @@ export default function App() {
     });
     setWeightInput("");
   };
+
+  // ── Food search (Open Food Facts) ──
+  const searchFoods = useCallback(async(q)=>{
+    setFoodSearch(q);
+    if(!q.trim()){setFoodResults([]);return;}
+    setFoodSearching(true);
+    try {
+      const res=await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,serving_size,serving_quantity,nutriments`);
+      const data=await res.json();
+      const results=(data.products||[])
+        .filter(p=>p.product_name&&p.nutriments?.['energy-kcal_100g'])
+        .map(p=>{
+          const n=p.nutriments,servG=parseFloat(p.serving_quantity)||100,fac=servG/100;
+          return {
+            name:p.product_name,brand:p.brands,
+            amount:p.serving_size||`${servG}g`,
+            calories:Math.round((n['energy-kcal_100g']||0)*fac),
+            protein:Math.round((n.proteins_100g||0)*fac*10)/10,
+            carbs:Math.round((n.carbohydrates_100g||0)*fac*10)/10,
+            fat:Math.round((n.fat_100g||0)*fac*10)/10,
+          };
+        });
+      setFoodResults(results);
+    } catch {setFoodResults([]);}
+    setFoodSearching(false);
+  },[]);
 
   const startVoice = async()=>{
     if(isRecording){ mediaRecorderRef.current?.stop(); return; }
@@ -427,8 +457,7 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
   const [barcodeActive, setBarcodeActive] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState("");
   const barcodeVideoRef = useRef(null);
-  const barcodeStreamRef = useRef(null);
-  const barcodeIntervalRef = useRef(null);
+  const barcodeControlsRef = useRef(null);
 
   // ── Body fat state ──
   const [bodyFatLog, setBodyFatLog] = useState(()=>load("nc_bodyfat",[]));
@@ -437,60 +466,54 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
   const bodyFatFileRef = useRef(null);
   useEffect(()=>{save("nc_bodyfat",bodyFatLog);},[bodyFatLog]);
 
-  // ── Barcode scanner ──
+  // ── Barcode scanner (ZXing + Open Food Facts) ──
   const startBarcode = async()=>{
+    setBarcodeActive(true); setBarcodeStatus("Starting camera...");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-      barcodeStreamRef.current = stream;
-      setBarcodeActive(true);
-      setBarcodeStatus("Point at a barcode...");
-      // Give video element time to mount
-      setTimeout(()=>{
-        if(barcodeVideoRef.current){
-          barcodeVideoRef.current.srcObject = stream;
-          barcodeVideoRef.current.play();
-        }
-      }, 100);
-      // Capture frames and send to AI every 2.5s
-      barcodeIntervalRef.current = setInterval(()=>captureBarcode(), 2500);
-    } catch { setBarcodeStatus("Camera access denied."); }
+      const {BrowserMultiFormatReader} = await import("@zxing/browser");
+      const reader = new BrowserMultiFormatReader();
+      let foundBarcode = false;
+      const controls = await reader.decodeFromVideoDevice(null, barcodeVideoRef.current, async(result, err)=>{
+        if(!result || foundBarcode) return;
+        foundBarcode = true;
+        controls?.stop();
+        const code = result.getText();
+        setBarcodeStatus(`Found barcode — looking up product...`);
+        try {
+          const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
+          const data = await res.json();
+          if(data.status===1){
+            const p=data.product, n=p.nutriments||{};
+            const servG=parseFloat(p.serving_quantity)||100, fac=servG/100;
+            const food={
+              name:p.product_name||"Scanned Product",
+              amount:p.serving_size||`${servG}g`,
+              calories:Math.round((n["energy-kcal_100g"]||0)*fac),
+              protein:Math.round((n.proteins_100g||0)*fac*10)/10,
+              carbs:Math.round((n.carbohydrates_100g||0)*fac*10)/10,
+              fat:Math.round((n.fat_100g||0)*fac*10)/10,
+            };
+            addFoods([food]);
+            setMessages(prev=>[...prev,{role:"assistant",text:`🔍 Scanned: ${food.name} (+${food.calories} cal)`,foods:[food]}]);
+            stopBarcode(); setTab("chat");
+          } else {
+            setBarcodeStatus("Product not found in database. Try another item.");
+            foundBarcode = false; // allow retry
+          }
+        } catch { setBarcodeStatus("Lookup failed — try again."); foundBarcode=false; }
+      });
+      barcodeControlsRef.current = controls;
+    } catch(e) { setBarcodeStatus("Camera access denied."); setBarcodeActive(false); }
   };
 
   const stopBarcode = ()=>{
-    clearInterval(barcodeIntervalRef.current);
-    barcodeStreamRef.current?.getTracks().forEach(t=>t.stop());
-    barcodeVideoRef.current && (barcodeVideoRef.current.srcObject=null);
+    barcodeControlsRef.current?.stop();
+    barcodeControlsRef.current = null;
+    if(barcodeVideoRef.current?.srcObject){
+      barcodeVideoRef.current.srcObject.getTracks().forEach(t=>t.stop());
+      barcodeVideoRef.current.srcObject = null;
+    }
     setBarcodeActive(false); setBarcodeStatus("");
-  };
-
-  const captureBarcode = ()=>{
-    const video = barcodeVideoRef.current;
-    if(!video||video.readyState<2) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video,0,0);
-    const b64 = canvas.toDataURL("image/jpeg",0.8).split(",")[1];
-    setBarcodeStatus("Scanning...");
-    fetch("/api/chat",{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,
-        system:`You are a barcode and food label reader. Look at this image for a barcode or food product label. If you see a barcode or recognisable product, identify the product and estimate its nutrition per standard serving. Respond ONLY with valid JSON:
-{"found":true,"name":"product name","amount":"serving size","calories":120,"protein":5,"carbs":18,"fat":3,"message":"Found: [product]. Logged per [serving]."}
-If no barcode or product is visible: {"found":false,"message":"No barcode found yet, keep scanning..."}`,
-        messages:[{role:"user",content:[
-          {type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},
-          {type:"text",text:"Scan this for a barcode or food product label."}
-        ]}]})
-    }).then(r=>r.json()).then(data=>{
-      const raw = data.content?.find(b=>b.type==="text")?.text||"{}";
-      let parsed; try{parsed=JSON.parse(raw);}catch{return;}
-      if(parsed.found){
-        stopBarcode();
-        addFoods([{name:parsed.name,amount:parsed.amount,calories:parsed.calories,protein:parsed.protein,carbs:parsed.carbs,fat:parsed.fat}]);
-        setMessages(prev=>[...prev,{role:"assistant",text:`🔍 ${parsed.message}`,foods:[parsed]}]);
-        setTab("chat");
-      } else { setBarcodeStatus(parsed.message||"Scanning..."); }
-    }).catch(()=>setBarcodeStatus("Scanning..."));
   };
 
   // ── Body fat estimator ──
@@ -777,29 +800,80 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
       {/* ── LOG TAB ── */}
       {tab==="log"&&(
         <div style={{flex:1,overflowY:"auto",padding:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontWeight:700,fontSize:16}}>Today's Log</div>
-            <button onClick={()=>{if(window.confirm("Clear today?"))setAllData(p=>({...p,[today]:{foods:[]}}));}}
-              style={{background:"transparent",border:`1px solid ${t.border}`,color:t.muted,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Clear</button>
-          </div>
-          {todayFoods.length===0
-            ?<div style={{textAlign:"center",color:t.muted,marginTop:60,fontSize:14}}>Nothing logged yet.<br/>Head to Chat to add meals!</div>
-            :todayFoods.map((f,i)=>(
-              <div key={i} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between"}}>
-                  <div style={{fontWeight:700}}>{f.name}</div>
-                  <div style={{fontSize:11,color:t.muted}}>{f.time}</div>
-                </div>
-                <div style={{fontSize:12,color:t.muted,marginBottom:6}}>{f.amount}</div>
-                <div style={{display:"flex",gap:10,fontSize:12}}>
-                  <span style={{color:t.accent}}>{f.calories} kcal</span>
-                  <span style={{color:t.protein}}>P {f.protein}g</span>
-                  <span style={{color:t.carbs}}>C {f.carbs}g</span>
-                  <span style={{color:t.fat}}>F {f.fat}g</span>
-                </div>
+          {/* ── Food Search ── */}
+          <div style={{marginBottom:14}}>
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:15,pointerEvents:"none"}}>🔎</span>
+              <input value={foodSearch} onChange={e=>searchFoods(e.target.value)}
+                placeholder="Search food database..." style={{...iStyle,paddingLeft:36,paddingRight:foodSearch?36:14}}/>
+              {foodSearch&&(
+                <button onClick={()=>{setFoodSearch("");setFoodResults([]);}}
+                  style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",cursor:"pointer",color:t.muted,fontSize:20,lineHeight:1}}>×</button>
+              )}
+            </div>
+            {foodSearching&&(
+              <div style={{color:t.muted,fontSize:12,padding:"10px 0",textAlign:"center"}}>Searching database...</div>
+            )}
+            {foodResults.length>0&&(
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                {foodResults.map((f,i)=>(
+                  <div key={i} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:12,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+                      {f.brand&&<div style={{fontSize:10,color:t.muted,marginBottom:2}}>{f.brand} · {f.amount}</div>}
+                      <div style={{display:"flex",gap:8,fontSize:11}}>
+                        <span style={{color:t.accent}}>{f.calories} cal</span>
+                        <span style={{color:t.protein}}>P {f.protein}g</span>
+                        <span style={{color:t.carbs}}>C {f.carbs}g</span>
+                        <span style={{color:t.fat}}>F {f.fat}g</span>
+                      </div>
+                    </div>
+                    <button onClick={()=>{
+                      addFoods([f]);
+                      setMessages(prev=>[...prev,{role:"assistant",text:`Logged ${f.name} (+${f.calories} cal) 📋`,foods:[f]}]);
+                      setFoodSearch(""); setFoodResults([]);
+                    }} style={{background:t.accent,border:"none",borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:700,color:t.accentText,flexShrink:0}}>+ Log</button>
+                  </div>
+                ))}
               </div>
-            ))
-          }
+            )}
+            {foodSearch&&!foodSearching&&foodResults.length===0&&(
+              <div style={{color:t.muted,fontSize:12,padding:"10px 0",textAlign:"center"}}>No results — try the chat for AI estimation!</div>
+            )}
+          </div>
+
+          {/* ── Today's log list ── */}
+          {!foodSearch&&(
+            <>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:16}}>Today's Log</div>
+                <button onClick={()=>{if(window.confirm("Clear today?"))setAllData(p=>({...p,[today]:{foods:[]}}));}}
+                  style={{background:"transparent",border:`1px solid ${t.border}`,color:t.muted,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Clear</button>
+              </div>
+              {todayFoods.length===0
+                ?<div style={{textAlign:"center",color:t.muted,marginTop:40,fontSize:14}}>Nothing logged yet.<br/>Search above or head to Chat!</div>
+                :todayFoods.map((f,i)=>(
+                  <div key={i} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <div style={{fontWeight:700}}>{f.name}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{fontSize:11,color:t.muted}}>{f.time}</div>
+                        <button onClick={()=>setAllData(p=>({...p,[today]:{...p[today],foods:p[today].foods.filter((_,fi)=>fi!==i)}}))}
+                          style={{background:"transparent",border:"none",cursor:"pointer",color:t.muted,fontSize:16,padding:0,lineHeight:1}}>×</button>
+                      </div>
+                    </div>
+                    <div style={{fontSize:12,color:t.muted,marginBottom:6}}>{f.amount}</div>
+                    <div style={{display:"flex",gap:10,fontSize:12}}>
+                      <span style={{color:t.accent}}>{f.calories} kcal</span>
+                      <span style={{color:t.protein}}>P {f.protein}g</span>
+                      <span style={{color:t.carbs}}>C {f.carbs}g</span>
+                      <span style={{color:t.fat}}>F {f.fat}g</span>
+                    </div>
+                  </div>
+                ))
+              }
+            </>
+          )}
         </div>
       )}
 
@@ -929,69 +1003,103 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── PROGRESS CHARTS TAB ── */}
       {tab==="progress"&&(()=>{
-        const last30 = Array.from({length:30},(_,i)=>{
-          const d=new Date(); d.setDate(d.getDate()-(29-i));
+        const days = chartRange;
+        const rangeData = Array.from({length:days},(_,i)=>{
+          const d=new Date(); d.setDate(d.getDate()-(days-1-i));
           const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
           const foods=allData[k]?.foods||[];
           const tot=foods.reduce((a,f)=>({cal:a.cal+(f.calories||0),p:a.p+(f.protein||0)}),{cal:0,p:0});
-          return {k,cal:tot.cal,protein:tot.p,hasData:foods.length>0,label:d.getDate()};
+          return {k,cal:tot.cal,protein:tot.p,hasData:foods.length>0,label:d.getDate(),weekday:d.toLocaleDateString("en",{weekday:"short"})};
         });
 
-        const renderChart=(data,color,label,unit,goal)=>{
+        const renderLineChart=(data,color,label,unit,goal)=>{
           const vals=data.map(d=>d.v);
+          const nonZero=vals.filter(v=>v>0);
           const max=Math.max(...vals,goal||1,1);
           const W=340,H=90,pad=8;
-          const pts=data.map((d,i)=>({x:pad+(i/(data.length-1||1))*(W-pad*2),y:H-pad-((d.v/max)*(H-pad*2))}));
+          const pts=data.map((d,i)=>({x:pad+(i/(data.length-1||1))*(W-pad*2),y:H-pad-((d.v/max)*(H-pad*2)),hasData:d.v>0}));
           const path="M"+pts.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("L");
-          const goalY = goal ? H-pad-((goal/max)*(H-pad*2)) : null;
+          const goalY=goal?H-pad-((goal/max)*(H-pad*2)):null;
+          const avg=nonZero.length?Math.round(nonZero.reduce((a,b)=>a+b,0)/nonZero.length):null;
+          const streak=(()=>{let s=0;for(let i=vals.length-1;i>=0;i--){if(vals[i]>0)s++;else break;}return s;})();
           return (
             <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                 <div style={{fontWeight:700,fontSize:14}}>{label}</div>
-                {vals.filter(v=>v>0).length>0&&(
-                  <div style={{fontSize:12,color:t.muted}}>Avg: <span style={{color,fontWeight:700}}>{Math.round(vals.filter(v=>v>0).reduce((a,b)=>a+b,0)/vals.filter(v=>v>0).length)}{unit}</span></div>
-                )}
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  {streak>0&&<div style={{fontSize:11,color:t.accent,fontWeight:700}}>🔥 {streak}d streak</div>}
+                  {avg!==null&&<div style={{fontSize:11,color:t.muted}}>Avg: <span style={{color,fontWeight:700}}>{avg}{unit}</span></div>}
+                </div>
               </div>
               <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{overflow:"visible"}}>
                 <defs>
-                  <linearGradient id={`g${label}`} x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id={`g${label.replace(/\s/g,"")}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={color} stopOpacity="0.25"/>
                     <stop offset="100%" stopColor={color} stopOpacity="0"/>
                   </linearGradient>
                 </defs>
                 {goalY&&<line x1={pad} y1={goalY} x2={W-pad} y2={goalY} stroke={color} strokeWidth="1" strokeDasharray="4 3" opacity="0.5"/>}
-                <path d={path+`L${pts[pts.length-1].x},${H} L${pts[0].x},${H} Z`} fill={`url(#g${label})`}/>
+                <path d={path+`L${pts[pts.length-1].x},${H} L${pts[0].x},${H} Z`} fill={`url(#g${label.replace(/\s/g,"")})`}/>
                 <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                {pts.filter((_,i)=>data[i].v>0).map((p,i)=>(
-                  <circle key={i} cx={p.x} cy={p.y} r="3" fill={color}/>
+                {pts.filter(p=>p.hasData).map((p,i)=>(
+                  <circle key={i} cx={p.x} cy={p.y} r={days<=14?4:2.5} fill={color}/>
                 ))}
               </svg>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:t.muted,marginTop:2}}>
-                <span>30 days ago</span><span>Today</span>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:t.muted,marginTop:4}}>
+                <span>{days===7?"Mon":days===14?"2w ago":`${days}d ago`}</span>
+                <span>Today</span>
               </div>
-              {goal&&<div style={{fontSize:11,color:t.muted,marginTop:6}}>Dashed line = your goal ({goal}{unit})</div>}
+              {goal&&goalY!==null&&<div style={{fontSize:10,color:t.muted,marginTop:4}}>── goal: {goal}{unit}</div>}
             </div>
           );
         };
 
-        const calData=last30.map(d=>({v:d.cal}));
-        const protData=last30.map(d=>({v:d.protein}));
-        const wData=weightLog.slice(-30).map(e=>({v:e.weight,date:e.date}));
+        const calData=rangeData.map(d=>({v:d.cal}));
+        const protData=rangeData.map(d=>({v:d.protein}));
+        const wData=weightLog.slice(-days).map(e=>({v:e.weight}));
+        const daysLogged=rangeData.filter(d=>d.hasData).length;
+        const avgCal=calData.filter(d=>d.v>0).length?Math.round(calData.filter(d=>d.v>0).reduce((a,d)=>a+d.v,0)/calData.filter(d=>d.v>0).length):0;
 
         return (
           <div style={{flex:1,overflowY:"auto",padding:14}}>
-            <div style={{fontWeight:800,fontSize:18,marginBottom:4}}>📈 Progress Charts</div>
-            <div style={{fontSize:13,color:t.muted,marginBottom:16}}>Last 30 days</div>
-            {renderChart(calData,t.accent,"Daily Calories","kcal",settings.calGoal)}
-            {renderChart(protData,t.protein,"Daily Protein","g",settings.proteinGoal)}
-            {wData.length>=2 ? renderChart(wData,"#34d399","Weight Trend","kg",null) : (
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontWeight:800,fontSize:18}}>📈 Progress</div>
+              {/* Range toggle */}
+              <div style={{display:"flex",gap:4,background:t.card2,borderRadius:10,padding:3}}>
+                {[7,14,30].map(r=>(
+                  <button key={r} onClick={()=>setChartRange(r)} style={{
+                    background:chartRange===r?t.accent:"transparent",
+                    border:"none",borderRadius:7,padding:"4px 10px",cursor:"pointer",
+                    fontSize:11,fontWeight:700,color:chartRange===r?t.accentText:t.muted,transition:"all 0.2s"
+                  }}>{r}d</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Summary stats row */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              {[
+                {l:"Days logged",v:daysLogged,u:`/${days}`,c:t.accent},
+                {l:"Avg calories",v:avgCal,u:"cal",c:t.text},
+                {l:"Consistency",v:Math.round((daysLogged/days)*100),u:"%",c:daysLogged/days>=0.8?"#34d399":"#fb923c"},
+              ].map(s=>(
+                <div key={s.l} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:12,padding:"10px 10px",textAlign:"center"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:s.c}}>{s.v}<span style={{fontSize:10,fontWeight:400}}>{s.u}</span></div>
+                  <div style={{fontSize:10,color:t.muted}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {renderLineChart(calData,t.accent,"Daily Calories","kcal",settings.calGoal)}
+            {renderLineChart(protData,t.protein,"Daily Protein","g",settings.proteinGoal)}
+            {wData.length>=2?renderLineChart(wData,"#34d399","Weight Trend","kg",null):(
               <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:14,color:t.muted,fontSize:13,textAlign:"center"}}>
                 Log at least 2 weight entries to see your weight trend.
               </div>
             )}
             {bodyFatLog.length>=2&&(()=>{
-              const bfData=bodyFatLog.slice(-30).map(e=>({v:e.bodyFat}));
-              return renderChart(bfData,"#f472b6","Body Fat %","%",null);
+              const bfData=bodyFatLog.slice(-days).map(e=>({v:e.bodyFat}));
+              return renderLineChart(bfData,"#f472b6","Body Fat %","%",null);
             })()}
           </div>
         );
