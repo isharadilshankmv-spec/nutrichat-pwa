@@ -21,46 +21,77 @@ function getLast7Keys() {
 }
 
 // ─── AI ───────────────────────────────────────────────────────────────────────
-const UNIVERSAL_PROMPT = `You are a smart health tracker assistant. The user may say or type ANYTHING — food they ate, their weight, a restaurant order, or a mix. Your job is to understand the intent and route it to the right section.
+const MODEL = "claude-sonnet-4-5";
 
-ROUTING RULES:
-- If they mention eating/drinking/food/meals/restaurant → type:"food"
-- If they mention their weight (e.g. "I weigh 73kg", "weighed myself, 80.5") → type:"weight"
-- If they mention both food AND weight → type:"both"
-- If unclear what they mean → type:"unclear"
+const UNIVERSAL_PROMPT = `You are NutriChat — a calorie & macro tracker. The user just told you (by voice or text) about food they ate or their weight.
 
-For food: estimate calories and macros. Handle home cooking, packaged food, and restaurants (use restaurant-specific data when a chain is named).
-For weight: extract the numeric value in kg (convert from lbs if needed: divide by 2.205).
+YOUR JOB: Whenever food is mentioned, ALWAYS return a populated "foods" array with nutritional estimates. NEVER return empty foods when food was mentioned.
 
-Respond ONLY with valid JSON (no markdown, no extra text):
+EXAMPLES:
+- "I had a Big Mac" → {"type":"food","foods":[{"name":"Big Mac","amount":"1 burger","calories":563,"protein":26,"carbs":45,"fat":33}],"text":"a Big Mac","message":"Logging your Big Mac!"}
+- "McDonald's Big Mac and a large Coke" → foods: [Big Mac, Large Coke (290 cal)]
+- "I weigh 73kg" → {"type":"weight","weightKg":73,"foods":[],"text":"weight: 73kg","message":"Got your weight!"}
+- "Chipotle chicken bowl with rice and beans" → use Chipotle's actual menu data
+
+RULES:
+- For restaurant chains, use their specific nutritional data (McDonald's, Chipotle, Starbucks, Subway, etc.)
+- "a couple of fries" or "some chips" → estimate medium portion
+- Weight values: convert from lbs to kg if needed (divide by 2.205)
+- For ambiguous voice input ("I had two of them"), make your best guess based on common foods, don't ask for clarification unless truly nothing is identifiable
+
+RESPOND ONLY with valid JSON (NO markdown code blocks, NO extra text):
 {
   "type": "food" | "weight" | "both" | "unclear",
-  "text": "clean plain-English summary of what you understood",
-  "foods": [{"name":"food name","amount":"serving","calories":123,"protein":12,"carbs":15,"fat":5}],
+  "text": "plain-English summary of what you understood",
+  "foods": [{"name":"food name","amount":"serving size","calories":123,"protein":12,"carbs":15,"fat":5}],
   "weightKg": null,
-  "message": "Short friendly confirmation of what was logged.",
+  "message": "Short friendly confirmation.",
   "unclear": false
 }
-If unclear set unclear:true and ask a clarifying question in message. Foods array can be empty if type is weight.`;
+
+Only set unclear:true if you genuinely cannot identify any food, weight, or intent. Default to food detection when in doubt.`;
 
 const PHOTO_PROMPT = `You are an expert nutritionist. Analyze this food photo, identify all items, estimate portions from visual cues. Respond ONLY with valid JSON (no markdown):
 {"foods":[{"name":"food name","amount":"estimated amount","calories":123,"protein":12,"carbs":15,"fat":5}],"message":"Brief description of what you see.","unclear":false}
 If not food set unclear:true.`;
 
 async function callClaude(messages, system, maxTokens=1000) {
-  const res = await fetch("/api/chat", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:maxTokens, system, messages})
-  });
-  const data = await res.json();
-  const raw = data.content?.find(b=>b.type==="text")?.text || "{}";
-  try { return JSON.parse(raw); } catch { return {unclear:true,message:"Couldn't parse. Try again?",foods:[]}; }
+  let res, data;
+  try {
+    res = await fetch("/api/chat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:MODEL, max_tokens:maxTokens, system, messages})
+    });
+    data = await res.json();
+  } catch(networkErr){
+    console.error("[NutriChat] Network error:", networkErr);
+    throw new Error("Network error — check your connection");
+  }
+
+  console.log("[NutriChat] API status:", res.status, "data:", data);
+
+  if(!res.ok || data.error){
+    const msg = data?.error?.message || data?.error || `API ${res.status}`;
+    throw new Error(msg);
+  }
+  const raw = data.content?.find(b=>b.type==="text")?.text;
+  if(!raw){
+    throw new Error("AI returned an empty response");
+  }
+  // Strip possible markdown fencing
+  const cleaned = raw.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch(parseErr){
+    console.error("[NutriChat] JSON parse failed. Raw:", raw);
+    throw new Error("AI returned invalid format");
+  }
 }
 
 async function callClaudeText(messages, system, maxTokens=1200) {
   const res = await fetch("/api/chat", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:maxTokens, system, messages})
+    body:JSON.stringify({model:MODEL, max_tokens:maxTokens, system, messages})
   });
   const data = await res.json();
   return data.content?.find(b=>b.type==="text")?.text || "";
@@ -267,7 +298,7 @@ export default function App() {
       try {
         const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
         dispatchResult(parsed, "voice");
-      } catch { setMessages(prev=>[...prev,{role:"assistant",text:"Something went wrong. Try again!"}]); }
+      } catch(err) { setMessages(prev=>[...prev,{role:"assistant",text:`⚠️ ${err.message||"Something went wrong"}. Please try again!`}]); }
       setLoading(false);
     };
 
@@ -439,7 +470,7 @@ export default function App() {
     try {
       const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
       dispatchResult(parsed);
-    } catch { setMessages(prev=>[...prev,{role:"assistant",text:"Something went wrong. Try again!"}]); }
+    } catch(err) { setMessages(prev=>[...prev,{role:"assistant",text:`⚠️ ${err.message||"Something went wrong"}. Please try again!`}]); }
     setLoading(false);
   };
 
