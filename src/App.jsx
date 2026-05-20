@@ -174,8 +174,9 @@ export default function App() {
   const [chartRange, setChartRange] = useState(30);
   const [isRecording, setIsRecording] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState(""); // "" | "listening" | "processing"
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const recognitionRef = useRef(null);
+  const voiceTranscriptRef = useRef("");
 
   useEffect(()=>{save("nc_weight",weightLog);},[weightLog]);
 
@@ -216,48 +217,62 @@ export default function App() {
     setFoodSearching(false);
   },[]);
 
-  const startVoice = async()=>{
-    if(isRecording){ mediaRecorderRef.current?.stop(); return; }
-    try {
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-      const mr=new MediaRecorder(stream);
-      audioChunksRef.current=[];
-      mr.ondataavailable=e=>audioChunksRef.current.push(e.data);
-      mr.onstop=async()=>{
-        stream.getTracks().forEach(t=>t.stop());
-        setIsRecording(false); setVoiceStatus("processing");
-        const blob=new Blob(audioChunksRef.current,{type:"audio/webm"});
-        const reader=new FileReader();
-        reader.onload=async(e)=>{
-          const b64=e.target.result.split(",")[1];
-          try {
-            const res=await fetch("/api/chat",{
-              method:"POST",headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
-                system:`You are a universal voice health tracker. Transcribe what the user says, understand their intent (food log, weight log, or both), then respond using this JSON schema:
-${UNIVERSAL_PROMPT.split("Respond ONLY")[1]}
-First transcribe exactly what you hear into "text", then route and fill the rest.`,
-                messages:[{role:"user",content:[
-                  {type:"image",source:{type:"base64",media_type:"audio/webm",data:b64}},
-                  {type:"text",text:"Transcribe and process this health tracking voice input."}
-                ]}]})
-            });
-            const data=await res.json();
-            const raw=data.content?.find(b=>b.type==="text")?.text||"{}";
-            let parsed; try{parsed=JSON.parse(raw);}catch{parsed={unclear:true,message:"Couldn't understand. Try again.",type:"unclear"};}
-            if(parsed.text) setMessages(prev=>[...prev,{role:"user",text:`🎙️ "${parsed.text}"`}]);
-            dispatchResult(parsed,"voice");
-          } catch { setMessages(prev=>[...prev,{role:"assistant",text:"Voice input failed. Try typing instead!"}]); }
-          setVoiceStatus("");
-        };
-        reader.readAsDataURL(blob);
-      };
-      mr.start(); mediaRecorderRef.current=mr;
-      setIsRecording(true); setVoiceStatus("listening");
-    } catch {
-      setVoiceStatus("");
-      setMessages(prev=>[...prev,{role:"assistant",text:"Microphone access denied. Please allow mic access and try again."}]);
+  // ── Voice input via Web Speech API ──
+  const startVoice = ()=>{
+    // Tap mic again while recording → stop
+    if(isRecording){ recognitionRef.current?.stop(); return; }
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){
+      setMessages(prev=>[...prev,{role:"assistant",text:"Voice input needs Chrome or Safari (iOS 14.5+). Try typing instead!"}]);
+      return;
     }
+
+    const r = new SR();
+    recognitionRef.current = r;
+    voiceTranscriptRef.current = "";
+
+    r.continuous = false;
+    r.interimResults = true; // show words as they're spoken
+    r.lang = "en-US";
+    r.maxAlternatives = 1;
+
+    r.onstart = ()=>{ setIsRecording(true); setVoiceStatus("listening"); setLiveTranscript(""); };
+
+    // Show live transcript as the user speaks
+    r.onresult = (e)=>{
+      const transcript = Array.from(e.results).map(x=>x[0].transcript).join("");
+      voiceTranscriptRef.current = transcript;
+      setLiveTranscript(transcript);
+      if(e.results[e.results.length-1].isFinal) setVoiceStatus("processing");
+    };
+
+    // When speech ends → send to Claude exactly like typing
+    r.onend = async()=>{
+      setIsRecording(false); setVoiceStatus(""); setLiveTranscript("");
+      const text = voiceTranscriptRef.current.trim();
+      voiceTranscriptRef.current = "";
+      if(!text || loading) return;
+
+      // Show the spoken words as a user chat bubble
+      setMessages(prev=>[...prev,{role:"user", text, isVoice:true}]);
+      setLoading(true);
+      try {
+        const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
+        dispatchResult(parsed);
+      } catch { setMessages(prev=>[...prev,{role:"assistant",text:"Something went wrong. Try again!"}]); }
+      setLoading(false);
+    };
+
+    r.onerror = (e)=>{
+      setIsRecording(false); setVoiceStatus(""); setLiveTranscript("");
+      voiceTranscriptRef.current = "";
+      if(e.error!=="no-speech" && e.error!=="aborted"){
+        setMessages(prev=>[...prev,{role:"assistant",text:`Mic error: ${e.error}. Please allow microphone access and try again.`}]);
+      }
+    };
+
+    r.start();
   };
 
   const [reminders, setReminders] = useState(()=>load("nc_reminders",{
@@ -620,6 +635,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                   border:m.role==="assistant"?`1px solid ${t.border}`:"none"
                 }}>
                   {m.imagePreview&&<img src={m.imagePreview} alt="food" style={{width:"100%",borderRadius:10,marginBottom:6,maxHeight:180,objectFit:"cover"}}/>}
+                  {m.isVoice&&<div style={{fontSize:11,opacity:0.75,marginBottom:4}}>🎙️ via voice</div>}
                   <div>{m.text}</div>
                   {m.foods?.map((f,fi)=><FoodChip key={fi} food={f} t={t}/>)}
                   {m.weightLogged&&(
@@ -636,18 +652,39 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             <div ref={bottomRef}/>
           </div>
           <div style={{padding:"10px 12px 12px",borderTop:`1px solid ${t.border}`,background:t.bg}}>
+            {/* Live transcript bubble — appears while speaking */}
             {voiceStatus==="listening"&&(
-              <div style={{textAlign:"center",fontSize:12,color:t.accent,marginBottom:8,animation:"pulse 1s infinite"}}>🎙️ Listening... tap mic to stop</div>
+              <div style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"flex-end"}}>
+                  <div style={{
+                    maxWidth:"85%",background:t.accent,color:t.accentText,
+                    borderRadius:"18px 18px 4px 18px",padding:"10px 14px",fontSize:14,lineHeight:1.5
+                  }}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:18,animation:"micpulse 1s infinite"}}>🎙️</span>
+                      <span style={{fontStyle:liveTranscript?"normal":"italic",opacity:liveTranscript?1:0.7}}>
+                        {liveTranscript||"Listening… speak now"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right",fontSize:10,color:t.muted,marginTop:4}}>Tap 🎙️ to stop</div>
+              </div>
             )}
             {voiceStatus==="processing"&&(
-              <div style={{textAlign:"center",fontSize:12,color:t.muted,marginBottom:8}}>⏳ Processing voice...</div>
+              <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+                <div style={{background:t.accent,color:t.accentText,borderRadius:"18px 18px 4px 18px",padding:"10px 14px",fontSize:13}}>
+                  <span style={{fontStyle:"italic"}}>"{voiceTranscriptRef.current||liveTranscript}"</span>
+                </div>
+              </div>
             )}
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <button onClick={()=>fileRef.current?.click()}
                 style={{background:t.card2,border:`1px solid ${t.border}`,borderRadius:12,width:46,height:46,cursor:"pointer",fontSize:20,flexShrink:0}}>📷</button>
               <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{if(e.target.files[0])sendPhoto(e.target.files[0]);e.target.value="";}}/>
               <button onClick={startBarcode} title="Scan barcode"
-                style={{background:t.card2,border:`1px solid ${t.border}`,borderRadius:12,width:46,height:46,cursor:"pointer",fontSize:20,flexShrink:0}}>🔍</button>              <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendText()}
+                style={{background:t.card2,border:`1px solid ${t.border}`,borderRadius:12,width:46,height:46,cursor:"pointer",fontSize:20,flexShrink:0}}>🔍</button>
+              <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendText()}
                 placeholder="Food, restaurant, or 'I weigh 73kg'..." style={{...iStyle,flex:1}}/>
               <button onClick={startVoice} style={{
                 background:isRecording?t.accent:t.card2, border:`1px solid ${isRecording?t.accent:t.border}`,
