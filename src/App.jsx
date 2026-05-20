@@ -219,7 +219,6 @@ export default function App() {
 
   // ── Voice input via Web Speech API ──
   const startVoice = ()=>{
-    // Tap mic again while recording → stop
     if(isRecording){ recognitionRef.current?.stop(); return; }
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -232,29 +231,37 @@ export default function App() {
     recognitionRef.current = r;
     voiceTranscriptRef.current = "";
 
-    r.continuous = false;
+    r.continuous = true;     // keep listening through natural pauses
     r.interimResults = true; // show words as they're spoken
     r.lang = "en-US";
     r.maxAlternatives = 1;
 
-    r.onstart = ()=>{ setIsRecording(true); setVoiceStatus("listening"); setLiveTranscript(""); };
+    let silenceTimer = null;
+    let maxTimer = null;
 
-    // Show live transcript as the user speaks
+    const stopNow = ()=>{ clearTimeout(silenceTimer); clearTimeout(maxTimer); r.stop(); };
+
+    r.onstart = ()=>{
+      setIsRecording(true); setVoiceStatus("listening"); setLiveTranscript("");
+      maxTimer = setTimeout(stopNow, 30000); // 30s hard cap
+    };
+
     r.onresult = (e)=>{
       const transcript = Array.from(e.results).map(x=>x[0].transcript).join("");
       voiceTranscriptRef.current = transcript;
       setLiveTranscript(transcript);
-      if(e.results[e.results.length-1].isFinal) setVoiceStatus("processing");
+      // Reset the silence countdown on every new word — stops 2.5s after last word
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(stopNow, 2500);
     };
 
-    // When speech ends → send to Claude exactly like typing
     r.onend = async()=>{
+      clearTimeout(silenceTimer); clearTimeout(maxTimer);
       setIsRecording(false); setVoiceStatus(""); setLiveTranscript("");
       const text = voiceTranscriptRef.current.trim();
       voiceTranscriptRef.current = "";
       if(!text || loading) return;
 
-      // Show the spoken words as a user chat bubble
       setMessages(prev=>[...prev,{role:"user", text, isVoice:true}]);
       setLoading(true);
       try {
@@ -265,6 +272,7 @@ export default function App() {
     };
 
     r.onerror = (e)=>{
+      clearTimeout(silenceTimer); clearTimeout(maxTimer);
       setIsRecording(false); setVoiceStatus(""); setLiveTranscript("");
       voiceTranscriptRef.current = "";
       if(e.error!=="no-speech" && e.error!=="aborted"){
