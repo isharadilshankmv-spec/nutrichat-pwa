@@ -22,6 +22,8 @@ function getLast7Keys() {
 
 // ─── AI ───────────────────────────────────────────────────────────────────────
 const MODEL = "claude-sonnet-4-5";
+const IS_NATIVE = typeof window !== "undefined" && !!window.Capacitor?.isNativePlatform?.();
+const API_URL = IS_NATIVE ? "https://nutrichat-pwa.vercel.app/api/chat" : "/api/chat";
 
 const UNIVERSAL_PROMPT = `You are NutriChat — a calorie & macro tracker. The user just told you (by voice or text) about food they ate or their weight.
 
@@ -58,7 +60,7 @@ If not food set unclear:true.`;
 async function callClaude(messages, system, maxTokens=1000) {
   let res, data;
   try {
-    res = await fetch("/api/chat", {
+    res = await fetch(API_URL, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({model:MODEL, max_tokens:maxTokens, system, messages})
     });
@@ -89,7 +91,7 @@ async function callClaude(messages, system, maxTokens=1000) {
 }
 
 async function callClaudeText(messages, system, maxTokens=1200) {
-  const res = await fetch("/api/chat", {
+  const res = await fetch(API_URL, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:MODEL, max_tokens:maxTokens, system, messages})
   });
@@ -248,9 +250,74 @@ export default function App() {
     setFoodSearching(false);
   },[]);
 
-  // ── Voice input via Web Speech API ──
+  // ── Voice input: native Capacitor plugin or Web Speech API ──
+  const startVoiceNative = async ()=>{
+    try {
+      const { SpeechRecognition } = await import("@capacitor-community/speech-recognition");
+      const { available } = await SpeechRecognition.available();
+      if(!available){
+        setMessages(prev=>[...prev,{role:"assistant",text:"Speech recognition not available on this device."}]);
+        return;
+      }
+      let perm = await SpeechRecognition.checkPermissions();
+      if(perm.speechRecognition !== "granted") perm = await SpeechRecognition.requestPermissions();
+      if(perm.speechRecognition !== "granted"){
+        setMessages(prev=>[...prev,{role:"assistant",text:"Please allow microphone and speech access in Settings."}]);
+        return;
+      }
+
+      voiceTranscriptRef.current = "";
+      setLiveTranscript(""); setVoiceStatus("listening"); setIsRecording(true);
+
+      let silenceTimer = null;
+      let maxTimer = null;
+      let processed = false;
+
+      const cleanupAndProcess = async()=>{
+        if(processed) return;
+        processed = true;
+        clearTimeout(silenceTimer); clearTimeout(maxTimer);
+        try { await SpeechRecognition.stop(); } catch {}
+        try { await SpeechRecognition.removeAllListeners(); } catch {}
+        recognitionRef.current = null;
+        setIsRecording(false); setVoiceStatus(""); setLiveTranscript("");
+        const text = voiceTranscriptRef.current.trim();
+        voiceTranscriptRef.current = "";
+        if(!text || loading) return;
+        setMessages(prev=>[...prev,{role:"user", text, isVoice:true}]);
+        setLoading(true);
+        try {
+          const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
+          dispatchResult(parsed, "voice");
+        } catch(err) { setMessages(prev=>[...prev,{role:"assistant",text:`⚠️ ${err.message||"Something went wrong"}. Please try again!`}]); }
+        setLoading(false);
+      };
+
+      recognitionRef.current = { stop: cleanupAndProcess };
+
+      await SpeechRecognition.addListener("partialResults", (data)=>{
+        const text = (data.matches?.[0] || "").trim();
+        if(text){
+          voiceTranscriptRef.current = text;
+          setLiveTranscript(text);
+          clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(cleanupAndProcess, 2500);
+        }
+      });
+
+      maxTimer = setTimeout(cleanupAndProcess, 30000);
+      await SpeechRecognition.start({ language:"en-US", partialResults:true, popup:false });
+    } catch(err) {
+      console.error("[NutriChat Native Voice]", err);
+      setIsRecording(false); setVoiceStatus(""); setLiveTranscript("");
+      setMessages(prev=>[...prev,{role:"assistant",text:`Voice error: ${err.message||"unknown"}`}]);
+    }
+  };
+
   const startVoice = ()=>{
     if(isRecording){ recognitionRef.current?.stop(); return; }
+
+    if(IS_NATIVE){ startVoiceNative(); return; }
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if(!SR){
@@ -630,7 +697,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
       const b64 = e.target.result.split(",")[1];
       const preview = e.target.result;
       try {
-        const res = await fetch("/api/chat",{
+        const res = await fetch(API_URL,{
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({model:MODEL,max_tokens:600,
             system:BODY_FAT_RULES,

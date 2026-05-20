@@ -1,0 +1,8 @@
+{
+  "appId": "com.nutrichat.app",
+  "appName": "NutriChat",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  }
+}

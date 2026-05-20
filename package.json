@@ -9,11 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
+    "@capacitor/core": "^7.6.5",
+    "@capacitor/ios": "^7.6.5",
     "@zxing/browser": "^0.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.5",
     "@vitejs/plugin-react": "^4.2.0",
     "vite": "^5.0.0"
   }
