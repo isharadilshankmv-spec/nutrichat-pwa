@@ -453,6 +453,42 @@ export default function App() {
   };
   const updReminder=(key,patch)=>setReminders(prev=>({...prev,[key]:{...prev[key],...patch}}));
 
+  // ── SMS Reminders (Twilio) ──
+  const [smsConfig, setSmsConfig] = useState(()=>load("nc_sms",{phone:"",enabled:false}));
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsStatus, setSmsStatus] = useState("");
+  useEffect(()=>{save("nc_sms",smsConfig);},[smsConfig]);
+
+  const saveSmsConfig = async()=>{
+    if(!smsConfig.phone||smsConfig.phone.trim().length<8){setSmsStatus("Enter a valid phone number (with country code, e.g. +14155551234)");return;}
+    setSmsSaving(true); setSmsStatus("");
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const body = { phone: smsConfig.phone.trim(), timezone: tz, reminders: smsConfig.enabled ? reminders : {} };
+      const r = await fetch("https://nutrichat-pwa.vercel.app/api/save-reminders", {
+        method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)
+      });
+      const data = await r.json();
+      if(!r.ok) throw new Error(data.error||"Save failed");
+      setSmsStatus("✓ Saved! Reminders synced to the cron server.");
+    } catch(err){ setSmsStatus(`⚠️ ${err.message}`); }
+    setSmsSaving(false);
+  };
+
+  const sendTestSms = async()=>{
+    if(!smsConfig.phone||smsConfig.phone.trim().length<8){setSmsStatus("Enter a phone number first");return;}
+    setSmsSaving(true); setSmsStatus("Sending test SMS…");
+    try {
+      const r = await fetch("https://nutrichat-pwa.vercel.app/api/test-sms",{
+        method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({phone:smsConfig.phone.trim()})
+      });
+      const data = await r.json();
+      if(!r.ok) throw new Error(data.error||"Send failed");
+      setSmsStatus("✓ Test SMS sent! Check your phone.");
+    } catch(err){ setSmsStatus(`⚠️ ${err.message}`); }
+    setSmsSaving(false);
+  };
+
   const remaining = {
     calories: Math.max(0, settings.calGoal - totals.calories),
     protein: Math.max(0, settings.proteinGoal - totals.protein),
@@ -1673,6 +1709,38 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                 }}/>
               ))}
             </div>
+          </div>
+
+          <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>📱 SMS Reminders</div>
+          <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
+            <div style={{fontSize:12,color:t.muted,lineHeight:1.5,marginBottom:12}}>
+              Get reminders as text messages — works even when the app is closed or deleted. Uses the same meal times below.
+            </div>
+            <label style={{display:"block",fontSize:12,fontWeight:700,color:t.muted,marginBottom:6}}>Your Phone Number</label>
+            <input type="tel" placeholder="+14155551234" value={smsConfig.phone}
+              onChange={e=>setSmsConfig(p=>({...p,phone:e.target.value}))}
+              style={{width:"100%",background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 12px",color:t.text,fontSize:14,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+            <div style={{fontSize:11,color:t.muted,marginBottom:12}}>Include country code, e.g. +1 for US, +44 for UK.</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+              <div onClick={()=>setSmsConfig(p=>({...p,enabled:!p.enabled}))} style={{
+                width:44,height:24,borderRadius:99,cursor:"pointer",flexShrink:0,
+                background:smsConfig.enabled?t.accent:t.border,position:"relative",transition:"background 0.2s"
+              }}>
+                <div style={{position:"absolute",top:3,left:smsConfig.enabled?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
+              </div>
+              <div style={{fontWeight:700,fontSize:13}}>SMS reminders {smsConfig.enabled?"on":"off"}</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveSmsConfig} disabled={smsSaving}
+                style={{flex:1,background:t.accent,border:"none",borderRadius:10,padding:"10px 14px",cursor:smsSaving?"wait":"pointer",fontSize:13,fontWeight:700,color:t.accentText,opacity:smsSaving?0.6:1}}>
+                {smsSaving?"Working…":"💾 Save SMS settings"}
+              </button>
+              <button onClick={sendTestSms} disabled={smsSaving}
+                style={{flex:1,background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 14px",cursor:smsSaving?"wait":"pointer",fontSize:13,fontWeight:700,color:t.text,opacity:smsSaving?0.6:1}}>
+                📨 Send test SMS
+              </button>
+            </div>
+            {smsStatus&&<div style={{marginTop:10,fontSize:12,color:smsStatus.startsWith("⚠️")?"#f87171":t.accent,lineHeight:1.5}}>{smsStatus}</div>}
           </div>
 
           <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>🔔 Reminders</div>
