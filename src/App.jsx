@@ -266,7 +266,7 @@ export default function App() {
       setLoading(true);
       try {
         const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
-        dispatchResult(parsed);
+        dispatchResult(parsed, "voice");
       } catch { setMessages(prev=>[...prev,{role:"assistant",text:"Something went wrong. Try again!"}]); }
       setLoading(false);
     };
@@ -380,11 +380,13 @@ export default function App() {
       return;
     }
     const type = parsed.type || "food";
-    // Log food
-    if((type==="food"||type==="both") && parsed.foods?.length){
-      addFoods(parsed.foods);
-    }
-    // Log weight
+    const isFood = (type==="food"||type==="both") && parsed.foods?.length;
+    const needsConfirm = isFood && source==="voice";
+
+    // For typed input add food immediately; voice waits for user confirmation
+    if(isFood && !needsConfirm) addFoods(parsed.foods);
+
+    // Weight always logged immediately
     if((type==="weight"||type==="both") && parsed.weightKg){
       const w = parseFloat(parsed.weightKg);
       if(!isNaN(w) && w>0 && w<500){
@@ -394,11 +396,41 @@ export default function App() {
     }
     setMessages(prev=>[...prev,{
       role:"assistant",
-      text:parsed.message||"Got it!",
-      foods:(type==="food"||type==="both")?parsed.foods:null,
-      weightLogged:(type==="weight"||type==="both")?parsed.weightKg:null
+      text: needsConfirm
+        ? `I picked up: "${parsed.text||"your meal"}"\n\nIs this right? Tap Yes to add to your diary.`
+        : parsed.message||"Got it!",
+      foods: isFood ? parsed.foods : null,
+      weightLogged:(type==="weight"||type==="both")?parsed.weightKg:null,
+      pendingConfirm: needsConfirm,
     }]);
   },[addFoods, today]);
+
+  const confirmFoods = useCallback((foods)=>{
+    addFoods(foods);
+    setMessages(prev=>{
+      const updated=[...prev];
+      for(let i=updated.length-1;i>=0;i--){
+        if(updated[i].pendingConfirm){
+          updated[i]={...updated[i],pendingConfirm:false,text:`✅ Added to your diary!`};
+          break;
+        }
+      }
+      return updated;
+    });
+  },[addFoods]);
+
+  const cancelFoods = useCallback(()=>{
+    setMessages(prev=>{
+      const updated=[...prev];
+      for(let i=updated.length-1;i>=0;i--){
+        if(updated[i].pendingConfirm){
+          updated[i]={...updated[i],pendingConfirm:false,text:"No problem! Tell me what you actually had."};
+          break;
+        }
+      }
+      return updated;
+    });
+  },[]);
 
   // ── Send text ──
   const sendText = async()=>{
@@ -646,6 +678,18 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                   {m.isVoice&&<div style={{fontSize:11,opacity:0.75,marginBottom:4}}>🎙️ via voice</div>}
                   <div>{m.text}</div>
                   {m.foods?.map((f,fi)=><FoodChip key={fi} food={f} t={t}/>)}
+                  {m.pendingConfirm&&(
+                    <div style={{display:"flex",gap:8,marginTop:12}}>
+                      <button onClick={()=>confirmFoods(m.foods)}
+                        style={{flex:1,padding:"9px 12px",background:t.accent,color:t.accentText,border:"none",borderRadius:20,fontWeight:700,cursor:"pointer",fontSize:13}}>
+                        ✓ Yes, add this!
+                      </button>
+                      <button onClick={cancelFoods}
+                        style={{flex:1,padding:"9px 12px",background:t.card2,color:t.text,border:`1px solid ${t.border}`,borderRadius:20,fontWeight:600,cursor:"pointer",fontSize:13}}>
+                        ✗ No, try again
+                      </button>
+                    </div>
+                  )}
                   {m.weightLogged&&(
                     <div style={{background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"6px 10px",fontSize:12,marginTop:6,display:"flex",alignItems:"center",gap:8}}>
                       <span style={{fontSize:16}}>⚖️</span>
