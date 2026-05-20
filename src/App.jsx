@@ -546,7 +546,7 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
   const barcodeControlsRef = useRef(null);
 
   // ── Body fat state ──
-  const [bodyFatLog, setBodyFatLog] = useState(()=>load("nc_bodyfat",[]));
+  const [bodyFatLog, setBodyFatLog] = useState(()=>load("nc_bodyfat",[]).filter(e=>typeof e.bodyFat==="number"&&e.bodyFat>0));
   const [bodyFatLoading, setBodyFatLoading] = useState(false);
   const [bodyFatResult, setBodyFatResult] = useState(null);
   const bodyFatFileRef = useRef(null);
@@ -632,7 +632,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
       try {
         const res = await fetch("/api/chat",{
           method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,
+          body:JSON.stringify({model:MODEL,max_tokens:600,
             system:BODY_FAT_RULES,
             messages:[{role:"user",content:[
               {type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},
@@ -640,14 +640,31 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             ]}]})
         });
         const data = await res.json();
-        const raw = data.content?.find(b=>b.type==="text")?.text||"{}";
-        let parsed; try{parsed=JSON.parse(raw);}catch{parsed={bodyFat:null,notes:"Couldn't analyse. Try a clearer photo.",confidence:"none"};}
-        if(parsed.bodyFat!==null){
-          const entry={date:todayKey(),time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),bodyFat:parsed.bodyFat,category:parsed.category,notes:parsed.notes,confidence:parsed.confidence,preview};
+        console.log("[NutriChat BF] status:", res.status, "data:", data);
+        if(!res.ok || data.error){
+          const msg = data?.error?.message || data?.error || `API ${res.status}`;
+          setBodyFatResult({bodyFat:null,notes:`⚠️ ${msg}`,confidence:"none"});
+          setBodyFatLoading(false); return;
+        }
+        const raw = data.content?.find(b=>b.type==="text")?.text;
+        if(!raw){
+          setBodyFatResult({bodyFat:null,notes:"AI returned an empty response. Try again.",confidence:"none"});
+          setBodyFatLoading(false); return;
+        }
+        const cleaned = raw.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"").trim();
+        let parsed;
+        try { parsed = JSON.parse(cleaned); }
+        catch {
+          console.error("[NutriChat BF] parse failed. Raw:", raw);
+          setBodyFatResult({bodyFat:null,notes:"Couldn't parse AI response. Try a clearer photo.",confidence:"none"});
+          setBodyFatLoading(false); return;
+        }
+        if(typeof parsed.bodyFat === "number" && parsed.bodyFat > 0){
+          const entry={date:todayKey(),time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),bodyFat:parsed.bodyFat,category:parsed.category||"",notes:parsed.notes||"",confidence:parsed.confidence||"medium",preview};
           setBodyFatLog(prev=>[...prev,entry]);
         }
         setBodyFatResult(parsed);
-      } catch { setBodyFatResult({bodyFat:null,notes:"Analysis failed. Try again.",confidence:"none"}); }
+      } catch(err) { setBodyFatResult({bodyFat:null,notes:`⚠️ ${err.message||"Analysis failed"}. Try again.`,confidence:"none"}); }
       setBodyFatLoading(false);
     };
     reader.readAsDataURL(file);
