@@ -1199,7 +1199,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
       {/* ── BARCODE OVERLAY ── */}
       {barcodeActive&&(
         <div style={{position:"fixed",inset:0,background:"#000",zIndex:100,display:"flex",flexDirection:"column"}}>
-          <div style={{padding:"16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{paddingTop:"calc(env(safe-area-inset-top) + 14px)",paddingLeft:16,paddingRight:16,paddingBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{color:"#fff",fontWeight:700,fontSize:16}}>🔍 Barcode Scanner</div>
             <button onClick={stopBarcode} style={{background:"transparent",border:"1px solid #fff4",borderRadius:10,color:"#fff",padding:"6px 14px",cursor:"pointer",fontSize:14}}>Cancel</button>
           </div>
@@ -1214,7 +1214,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
               </div>
             </div>
           </div>
-          <div style={{padding:20,textAlign:"center",color:"#fff",fontSize:14,background:"rgba(0,0,0,0.8)",lineHeight:1.5}}>
+          <div style={{paddingTop:20,paddingLeft:20,paddingRight:20,paddingBottom:"calc(env(safe-area-inset-bottom) + 20px)",textAlign:"center",color:"#fff",fontSize:14,background:"rgba(0,0,0,0.8)",lineHeight:1.5}}>
             {barcodeStatus||"Point camera at barcode..."}
           </div>
         </div>
