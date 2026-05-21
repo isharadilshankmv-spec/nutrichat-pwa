@@ -960,7 +960,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
     <div style={{background:t.bg,height:"100%",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflow:"hidden"}}>
 
       {/* ── HEADER ── */}
-      <div style={{padding:"16px 16px 0",borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,zIndex:10}}>
+      <div style={{paddingTop:"calc(env(safe-area-inset-top) + 14px)",paddingLeft:16,paddingRight:16,paddingBottom:0,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,zIndex:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div>
             <span style={{fontSize:20,fontWeight:800,letterSpacing:-0.5}}>Nutri<span style={{color:t.accent}}>Chat</span></span>
@@ -1028,7 +1028,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             {loading&&<LoadingDots t={t}/>}
             <div ref={bottomRef}/>
           </div>
-          <div style={{padding:"10px 12px 12px",borderTop:`1px solid ${t.border}`,background:t.bg,flexShrink:0}}>
+          <div style={{paddingTop:10,paddingLeft:12,paddingRight:12,paddingBottom:"calc(env(safe-area-inset-bottom) + 12px)",borderTop:`1px solid ${t.border}`,background:t.bg,flexShrink:0}}>
             {/* Live transcript bubble — appears while speaking */}
             {voiceStatus==="listening"&&(
               <div style={{marginBottom:8}}>
