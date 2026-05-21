@@ -25,6 +25,7 @@ function getLast7Keys() {
 const MODEL = "claude-sonnet-4-5";
 const IS_NATIVE = typeof window !== "undefined" && !!window.Capacitor?.isNativePlatform?.();
 const API_URL = IS_NATIVE ? "https://nutrichat-pwa.vercel.app/api/chat" : "/api/chat";
+const GOOGLE_AUTH_ENABLED = false; // flip to true once Google OAuth is configured in Supabase
 
 const UNIVERSAL_PROMPT = `You are NutriChat — a calorie & macro tracker. The user just told you (by voice or text) about food they ate or their weight.
 
@@ -718,18 +719,36 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
   const signInEmail = async()=>{
     if(!authEmail || !authPassword){ setAuthError("Enter email and password"); return; }
     setAuthBusy(true); setAuthError("");
-    const fn = authMode==="signup" ? supabase.auth.signUp : supabase.auth.signInWithPassword;
-    const { error } = await fn.call(supabase.auth, { email:authEmail.trim(), password:authPassword });
-    if(error) setAuthError(error.message);
-    else if(authMode==="signup") setAuthError("Check your email to confirm, then sign in.");
+    try {
+      const creds = { email: authEmail.trim().toLowerCase(), password: authPassword };
+      const { data, error } = authMode==="signup"
+        ? await supabase.auth.signUp(creds)
+        : await supabase.auth.signInWithPassword(creds);
+      if(error){
+        console.error("[NutriChat auth]", error);
+        setAuthError(error.message);
+      } else if(authMode==="signup" && !data?.session){
+        setAuthError("Account created! Check your email to confirm, then tap Sign in.");
+      }
+      // On success with a session, onAuthStateChange logs the user in automatically.
+    } catch(err){
+      console.error("[NutriChat auth]", err);
+      setAuthError(err?.message || "Sign-in failed. Try again.");
+    }
     setAuthBusy(false);
   };
 
   const signInGoogle = async()=>{
+    if(!GOOGLE_AUTH_ENABLED){
+      setAuthError("Google sign-in is being set up — please use email for now.");
+      return;
+    }
     setAuthBusy(true); setAuthError("");
-    const redirectTo = IS_NATIVE ? "com.nutrichat.app://login-callback" : window.location.origin;
-    const { error } = await supabase.auth.signInWithOAuth({ provider:"google", options:{ redirectTo } });
-    if(error){ setAuthError(error.message); setAuthBusy(false); }
+    try {
+      const redirectTo = IS_NATIVE ? "com.nutrichat.app://login-callback" : window.location.origin;
+      const { error } = await supabase.auth.signInWithOAuth({ provider:"google", options:{ redirectTo } });
+      if(error){ console.error("[NutriChat google]", error); setAuthError(error.message); setAuthBusy(false); }
+    } catch(err){ setAuthError(err?.message||"Google sign-in failed"); setAuthBusy(false); }
   };
 
   const signOut = async()=>{
