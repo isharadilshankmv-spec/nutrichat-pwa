@@ -29,7 +29,10 @@ export default async function handler(req, res) {
     const r = await fetch(`${KV_URL}/get/nutrichat:user`, { headers: { Authorization: `Bearer ${KV_TOKEN}` } });
     const data = await r.json();
     if (!data?.result) return res.status(200).json({ ok: true, msg: "no user config yet" });
-    config = typeof data.result === "string" ? JSON.parse(data.result) : data.result;
+    // Robustly unwrap single- OR double-JSON-encoded values.
+    let parsed = data.result;
+    for (let i = 0; i < 4 && typeof parsed === "string"; i++) parsed = JSON.parse(parsed);
+    config = parsed;
   } catch (err) {
     return res.status(500).json({ error: "KV read failed", detail: err.message });
   }
@@ -57,7 +60,11 @@ export default async function handler(req, res) {
   try {
     const r = await fetch(`${KV_URL}/get/${encodeURIComponent(firedKey)}`, { headers: { Authorization: `Bearer ${KV_TOKEN}` } });
     const data = await r.json();
-    if (data?.result) fired = typeof data.result === "string" ? JSON.parse(data.result) : data.result;
+    if (data?.result) {
+      let p = data.result;
+      for (let i = 0; i < 4 && typeof p === "string"; i++) p = JSON.parse(p);
+      fired = Array.isArray(p) ? p : [];
+    }
   } catch {}
 
   const sent = [];
@@ -132,7 +139,7 @@ export default async function handler(req, res) {
       await fetch(`${KV_URL}/set/${encodeURIComponent(firedKey)}?EX=129600`, {
         method: "POST",
         headers: { Authorization: `Bearer ${KV_TOKEN}`, "Content-Type": "application/json" },
-        body: JSON.stringify(JSON.stringify(fired)),
+        body: JSON.stringify(fired),
       });
     } catch {}
   }

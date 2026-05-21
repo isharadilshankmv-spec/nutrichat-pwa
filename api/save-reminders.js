@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${KV_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(JSON.stringify(config)),
+      body: JSON.stringify(config),
     });
     if (!resp.ok) {
       const txt = await resp.text();
