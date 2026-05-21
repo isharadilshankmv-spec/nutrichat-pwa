@@ -20,13 +20,11 @@
         max-width: 100%;
         overflow: hidden;            /* lock the page — only inner areas scroll */
         overscroll-behavior: none;   /* no rubber-band bounce */
-        position: fixed;             /* iOS: pin the body so it can't drag */
-        top: 0; left: 0; right: 0; bottom: 0;
       }
       #root { height: 100%; width: 100%; overflow: hidden; }
       /* 16px minimum prevents iOS auto-zoom on input focus.
          !important so it beats inline font-size styles too. */
-      input, textarea, select { font-size: 16px !important; }
+      input, textarea, select { font-size: 16px !important; max-height: 100%; }
     </style>
   </head>
   <body>

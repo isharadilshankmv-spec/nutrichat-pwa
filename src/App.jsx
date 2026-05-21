@@ -158,14 +158,15 @@ function getTheme(s) {
 // ─── Components ───────────────────────────────────────────────────────────────
 function MacroBar({label,value,max,color,t}) {
   const pct=Math.min((value/(max||1))*100,100);
+  const barColor = t.dark ? color : "#1a1a1a"; // black bars in light mode
   return (
     <div style={{marginBottom:7}}>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
         <span style={{color:t.text,fontWeight:600}}>{label}</span>
-        <span style={{color}}>{Math.round(value)}g/{max}g</span>
+        <span style={{color:barColor,fontWeight:600}}>{Math.round(value)}g/{max}g</span>
       </div>
       <div style={{background:t.border,borderRadius:99,height:5,overflow:"hidden"}}>
-        <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:99,transition:"width 0.5s ease"}}/>
+        <div style={{width:`${pct}%`,height:"100%",background:barColor,borderRadius:99,transition:"width 0.5s ease"}}/>
       </div>
     </div>
   );
@@ -188,16 +189,17 @@ function FoodChip({food,t}) {
 function CalRing({calories,goal,t}) {
   const pct=Math.min(calories/(goal||1),1);
   const r=36, circ=2*Math.PI*r;
+  const ringColor = t.dark ? t.accent : "#1a1a1a"; // dark/black ring in light mode
   return (
     <div style={{position:"relative",width:96,height:96,flexShrink:0}}>
       <svg width={96} height={96} style={{transform:"rotate(-90deg)"}}>
         <circle cx={48} cy={48} r={r} fill="none" stroke={t.border} strokeWidth={9}/>
-        <circle cx={48} cy={48} r={r} fill="none" stroke={t.accent} strokeWidth={9}
+        <circle cx={48} cy={48} r={r} fill="none" stroke={ringColor} strokeWidth={9}
           strokeDasharray={`${pct*circ} ${circ}`} strokeLinecap="round"
           style={{transition:"stroke-dasharray 0.6s ease"}}/>
       </svg>
       <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-        <div style={{fontSize:18,fontWeight:800,color:t.accent,lineHeight:1}}>{Math.round(calories)}</div>
+        <div style={{fontSize:18,fontWeight:800,color:ringColor,lineHeight:1}}>{Math.round(calories)}</div>
         <div style={{fontSize:9,color:t.muted}}>/ {goal} cal</div>
       </div>
     </div>
@@ -620,9 +622,9 @@ export default function App() {
     }
     const type = parsed.type || "food";
     const isFood = (type==="food"||type==="both") && parsed.foods?.length;
-    const needsConfirm = isFood && source==="voice";
+    // Typed text adds immediately; voice/photo/barcode ask for confirmation first
+    const needsConfirm = isFood && source!=="text";
 
-    // For typed input add food immediately; voice waits for user confirmation
     if(isFood && !needsConfirm) addFoods(parsed.foods);
 
     // Weight always logged immediately
@@ -636,7 +638,7 @@ export default function App() {
     setMessages(prev=>[...prev,{
       role:"assistant",
       text: needsConfirm
-        ? `I picked up: "${parsed.text||"your meal"}"\n\nIs this right? Tap Yes to add to your diary.`
+        ? `${parsed.text||parsed.message||"Here's what I found"}\n\nAdd this to your diary?`
         : parsed.message||"Got it!",
       foods: isFood ? parsed.foods : null,
       weightLogged:(type==="weight"||type==="both")?parsed.weightKg:null,
@@ -887,9 +889,9 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
               carbs:Math.round((n.carbohydrates_100g||0)*fac*10)/10,
               fat:Math.round((n.fat_100g||0)*fac*10)/10,
             };
-            addFoods([food]);
-            setMessages(prev=>[...prev,{role:"assistant",text:`🔍 Scanned: ${food.name} (+${food.calories} cal)`,foods:[food]}]);
             stopBarcode(); setTab("chat");
+            // Ask for confirmation before adding (consistent with voice/photo)
+            setMessages(prev=>[...prev,{role:"assistant",text:`🔍 Scanned: ${food.name}\n\nAdd this to your diary?`,foods:[food],pendingConfirm:true}]);
           } else {
             setBarcodeStatus("Product not found in database. Try another item.");
             foundBarcode = false; // allow retry
@@ -1614,10 +1616,14 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                 Log at least 2 weight entries to see your weight trend.
               </div>
             )}
-            {bodyFatLog.length>=2&&(()=>{
+            {bodyFatLog.length>=2?(()=>{
               const bfData=bodyFatLog.slice(-days).map(e=>({v:e.bodyFat}));
-              return renderLineChart(bfData,"#f472b6","Body Fat %","%",null);
-            })()}
+              return renderLineChart(bfData,"#f472b6","Body Fat % Trend","%",null);
+            })():(
+              <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:14,color:t.muted,fontSize:13,textAlign:"center"}}>
+                Log at least 2 body-fat measurements (Body tab) to see your body-fat trend.
+              </div>
+            )}
           </div>
         );
       })()}
@@ -1740,6 +1746,12 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                       </div>
                     </div>
                     {e.notes&&<div style={{fontSize:12,color:t.muted,marginTop:8,lineHeight:1.5,borderTop:`1px solid ${t.border}`,paddingTop:8}}>{e.notes}</div>}
+                    <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
+                      <button onClick={()=>{if(window.confirm("Delete this body-fat entry and its photo?"))setBodyFatLog(prev=>prev.filter(x=>x!==e));}}
+                        style={{background:"transparent",border:`1px solid ${t.border}`,color:"#f87171",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                        🗑️ Delete
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -1906,6 +1918,61 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
           <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Daily Goals</div>
           <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
+
+            {/* Manual entry: type calories + macro % */}
+            {(()=>{
+              const mc = settings.proteinGoal*4 + settings.carbsGoal*4 + settings.fatGoal*9 || 1;
+              const pPct = Math.round(settings.proteinGoal*4/mc*100);
+              const cPct = Math.round(settings.carbsGoal*4/mc*100);
+              const fPct = Math.round(settings.fatGoal*9/mc*100);
+              const sumPct = pPct+cPct+fPct;
+              const setCalManual=(cal)=>setSettings(s=>{
+                const m=s.proteinGoal*4+s.carbsGoal*4+s.fatGoal*9||1;
+                return {...s,calGoal:cal,
+                  proteinGoal:Math.round(cal*(s.proteinGoal*4/m)/4),
+                  carbsGoal:Math.round(cal*(s.carbsGoal*4/m)/4),
+                  fatGoal:Math.round(cal*(s.fatGoal*9/m)/9)};
+              });
+              const setPct=(which,pct)=>setSettings(s=>{
+                const key=which==="p"?"proteinGoal":which==="c"?"carbsGoal":"fatGoal";
+                const per=which==="f"?9:4;
+                return {...s,[key]:Math.round(s.calGoal*(pct/100)/per)};
+              });
+              const pctInput=(which,val,color)=>(
+                <div style={{flex:1}}>
+                  <input type="number" min={0} max={100} value={val}
+                    onChange={e=>setPct(which, Math.max(0,Math.min(100,+e.target.value||0)))}
+                    style={{width:"100%",background:t.card2,border:`1px solid ${t.border}`,borderRadius:8,padding:"8px 6px",color,fontWeight:700,textAlign:"center",outline:"none",boxSizing:"border-box"}}/>
+                </div>
+              );
+              return (
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12,color:t.muted,fontWeight:700,marginBottom:8}}>✏️ Set manually</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                    <span style={{fontSize:13,color:t.text,fontWeight:700,width:78}}>Calories</span>
+                    <input type="number" min={0} value={settings.calGoal}
+                      onChange={e=>setCalManual(Math.max(0,+e.target.value||0))}
+                      style={{flex:1,background:t.card2,border:`1px solid ${t.border}`,borderRadius:8,padding:"8px 12px",color:t.text,fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                    <span style={{fontSize:12,color:t.muted}}>kcal</span>
+                  </div>
+                  <div style={{fontSize:11,color:t.muted,marginBottom:4}}>Macro split (% of calories)</div>
+                  <div style={{display:"flex",gap:8,marginBottom:4}}>
+                    {pctInput("p",pPct,"#60a5fa")}
+                    {pctInput("c",cPct,"#fb923c")}
+                    {pctInput("f",fPct,"#f472b6")}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    {[["Protein","#60a5fa"],["Carbs","#fb923c"],["Fat","#f472b6"]].map(([l,c])=>(
+                      <div key={l} style={{flex:1,textAlign:"center",fontSize:10,color:c,fontWeight:600}}>{l}</div>
+                    ))}
+                  </div>
+                  {sumPct!==100 && <div style={{fontSize:11,color:"#fb923c",marginTop:6}}>⚠️ Macro % adds to {sumPct}% (aim for 100%)</div>}
+                </div>
+              );
+            })()}
+
+            <div style={{height:1,background:t.border,marginBottom:14}}/>
+            <div style={{fontSize:11,color:t.muted,marginBottom:12}}>Or drag the sliders:</div>
 
             {/* Calorie total derived from macros */}
             {(()=>{
@@ -2144,9 +2211,16 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             <div style={{fontSize:13,color:t.muted,marginBottom:12}}>
               {Object.keys(allData).filter(k=>allData[k]?.foods?.length).length} days · {Object.values(allData).reduce((a,d)=>a+(d?.foods?.length||0),0)} entries
             </div>
-            <button onClick={()=>{if(window.confirm("Delete ALL data?"))setAllData({});}}
+            <button onClick={()=>{
+                if(window.confirm("Delete ALL data — food logs, weight, and body-fat photos? This can't be undone.")){
+                  setAllData({});
+                  setWeightLog([]);
+                  setBodyFatLog([]);
+                  setBodyFatResult(null);
+                }
+              }}
               style={{background:"transparent",border:"1px solid #f87171",color:"#f87171",borderRadius:10,padding:"10px 16px",cursor:"pointer",fontSize:13,width:"100%"}}>
-              🗑️ Clear All Data
+              🗑️ Clear All Data (food, weight & body-fat photos)
             </button>
           </div>
         </div>
