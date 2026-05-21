@@ -1515,14 +1515,19 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                 const prev=weightLog[weightLog.length-2-i];
                 const diff=prev?+(e.weight-prev.weight).toFixed(1):null;
                 return (
-                  <div key={e.date} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:12,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div key={e.date} style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:12,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
                     <div>
                       <div style={{fontWeight:600,fontSize:13}}>{keyToDisplay(e.date)}</div>
                       <div style={{fontSize:11,color:t.muted}}>{e.time}</div>
                     </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{fontWeight:800,color:t.accent,fontSize:16}}>{e.weight} kg</div>
-                      {diff!==null&&<div style={{fontSize:11,color:diff<0?"#34d399":diff>0?"#f87171":t.muted}}>{diff>0?"+":""}{diff}</div>}
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontWeight:800,color:t.accent,fontSize:16}}>{e.weight} kg</div>
+                        {diff!==null&&<div style={{fontSize:11,color:diff<0?"#34d399":diff>0?"#f87171":t.muted}}>{diff>0?"+":""}{diff}</div>}
+                      </div>
+                      <button onClick={()=>{if(window.confirm("Delete this weight entry?"))setWeightLog(prev=>prev.filter(x=>x!==e));}}
+                        title="Delete entry"
+                        style={{background:"transparent",border:`1px solid ${t.border}`,color:"#f87171",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,flexShrink:0}}>🗑️</button>
                     </div>
                   </div>
                 );
