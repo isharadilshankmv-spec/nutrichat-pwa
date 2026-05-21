@@ -69,17 +69,24 @@ export default async function handler(req, res) {
     { key: "lunch",     emoji: "🥗", label: "lunch" },
     { key: "dinner",    emoji: "🍽️", label: "dinner" },
   ];
+  const nowMin = localHour * 60 + parseInt(parts.minute, 10);
   for (const m of meals) {
     const r = reminders[m.key];
     if (!r?.enabled || !r.time) continue;
-    if (r.time === localHM && !fired.includes(m.key)) {
+    const [sh, sm] = String(r.time).split(":").map(Number);
+    if (isNaN(sh) || isNaN(sm)) continue;
+    const delta = nowMin - (sh * 60 + sm);
+    // Fire within 59 min AFTER the scheduled time so it still sends even if the
+    // exact minute tick was missed (cron hiccup or longer ping interval).
+    if (delta >= 0 && delta < 60 && !fired.includes(m.key)) {
       queue.push({ id: m.key, body: `NutriChat ${m.emoji}  Time to log your ${m.label}! Open the app to track what you ate.` });
     }
   }
 
-  // Hourly protein reminder — fires at :00 of every hour from 5am to 9pm (inclusive of 5, exclusive of 21)
+  // Hourly protein reminder — once per hour, 5am–9pm. Fires on the first tick of
+  // the hour (no longer requires the minute to be exactly :00).
   if (reminders.protein?.enabled) {
-    if (parts.minute === "00" && localHour >= 5 && localHour < 21) {
+    if (localHour >= 5 && localHour < 21) {
       const id = `protein-${parts.hour}`;
       if (!fired.includes(id)) {
         queue.push({ id, body: `NutriChat 💪  Protein check — log what you've had so far today!` });
