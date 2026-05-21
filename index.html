@@ -15,13 +15,15 @@
       html, body {
         background: #0d0d0d;
         font-family: 'DM Sans', 'Segoe UI', sans-serif;
+        height: 100%;
         width: 100%;
         max-width: 100%;
-        overflow-x: hidden;
-        overscroll-behavior-x: none;
-        position: relative;
+        overflow: hidden;            /* lock the page — only inner areas scroll */
+        overscroll-behavior: none;   /* no rubber-band bounce */
+        position: fixed;             /* iOS: pin the body so it can't drag */
+        top: 0; left: 0; right: 0; bottom: 0;
       }
-      #root { min-height: 100vh; width: 100%; overflow-x: hidden; }
+      #root { height: 100%; width: 100%; overflow: hidden; }
     </style>
   </head>
   <body>

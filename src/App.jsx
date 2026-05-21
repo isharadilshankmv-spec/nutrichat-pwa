@@ -887,7 +887,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   // ── Auth gate ──
   if(supabaseEnabled && (!authReady || (session && !cloudLoaded))){
     return (
-      <div style={{background:t.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:t.text,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
+      <div style={{background:t.bg,height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:t.text,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:30,fontWeight:800,marginBottom:10}}>Nutri<span style={{color:t.accent}}>Chat</span></div>
           <div style={{color:t.muted,fontSize:14}}>{!authReady?"Loading…":"Syncing your data…"}</div>
@@ -897,7 +897,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   }
   if(supabaseEnabled && !session){
     return (
-      <div style={{background:t.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,color:t.text,fontFamily:"'DM Sans','Segoe UI',sans-serif",width:"100%",maxWidth:420,margin:"0 auto"}}>
+      <div style={{background:t.bg,height:"100%",overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,color:t.text,fontFamily:"'DM Sans','Segoe UI',sans-serif",width:"100%",maxWidth:420,margin:"0 auto"}}>
         <div style={{fontSize:34,fontWeight:800,marginBottom:6}}>Nutri<span style={{color:t.accent}}>Chat</span></div>
         <div style={{color:t.muted,fontSize:14,marginBottom:28,textAlign:"center"}}>Your AI calorie & macro tracker</div>
 
@@ -957,10 +957,10 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   }
 
   return (
-    <div style={{background:t.bg,minHeight:"100vh",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflowX:"hidden"}}>
+    <div style={{background:t.bg,height:"100%",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflow:"hidden"}}>
 
       {/* ── HEADER ── */}
-      <div style={{padding:"16px 16px 0",borderBottom:`1px solid ${t.border}`,background:t.bg,position:"sticky",top:0,zIndex:10}}>
+      <div style={{padding:"16px 16px 0",borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,zIndex:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div>
             <span style={{fontSize:20,fontWeight:800,letterSpacing:-0.5}}>Nutri<span style={{color:t.accent}}>Chat</span></span>
@@ -989,7 +989,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
       {/* ── CHAT TAB ── */}
       {tab==="chat"&&(
         <>
-          <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10,maxHeight:"calc(100vh - 360px)",minHeight:160}}>
+          <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10,minHeight:0}}>
             {messages.map((m,i)=>(
               <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
                 <div style={{
@@ -1028,7 +1028,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             {loading&&<LoadingDots t={t}/>}
             <div ref={bottomRef}/>
           </div>
-          <div style={{padding:"10px 12px 12px",borderTop:`1px solid ${t.border}`,background:t.bg}}>
+          <div style={{padding:"10px 12px 12px",borderTop:`1px solid ${t.border}`,background:t.bg,flexShrink:0}}>
             {/* Live transcript bubble — appears while speaking */}
             {voiceStatus==="listening"&&(
               <div style={{marginBottom:8}}>
@@ -1101,7 +1101,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── SMART FEATURES TAB ── */}
       {tab==="smart"&&(
-        <div style={{flex:1,overflowY:"auto",padding:14}}>
+        <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
           <div style={{fontWeight:800,fontSize:18,marginBottom:4}}>✨ Smart Features</div>
           <div style={{fontSize:13,color:t.muted,marginBottom:18}}>AI-powered insights for your nutrition</div>
 
@@ -1213,7 +1213,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── LOG TAB ── */}
       {tab==="log"&&(
-        <div style={{flex:1,overflowY:"auto",padding:14}}>
+        <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
           {/* ── Food Search ── */}
           <div style={{marginBottom:14}}>
             <div style={{position:"relative"}}>
@@ -1293,7 +1293,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── WEIGHT TAB ── */}
       {tab==="weight"&&(
-        <div style={{flex:1,overflowY:"auto",padding:14}}>
+        <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
           <div style={{fontWeight:800,fontSize:18,marginBottom:4}}>⚖️ Weight Log</div>
           <div style={{fontSize:13,color:t.muted,marginBottom:16}}>Track your weight over time in kg</div>
 
@@ -1475,7 +1475,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
         const avgCal=calData.filter(d=>d.v>0).length?Math.round(calData.filter(d=>d.v>0).reduce((a,d)=>a+d.v,0)/calData.filter(d=>d.v>0).length):0;
 
         return (
-          <div style={{flex:1,overflowY:"auto",padding:14}}>
+          <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <div style={{fontWeight:800,fontSize:18}}>📈 Progress</div>
               {/* Range toggle */}
@@ -1521,7 +1521,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── BODY FAT TAB ── */}
       {tab==="body"&&(
-        <div style={{flex:1,overflowY:"auto",padding:14}}>
+        <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
           <div style={{fontWeight:800,fontSize:18,marginBottom:4}}>🫂 Body Fat Estimator</div>
           <div style={{fontSize:13,color:t.muted,marginBottom:14,lineHeight:1.6}}>
             Upload a photo in underwear and AI will estimate your body fat %. The same strict rules are applied every time for consistency.
@@ -1650,7 +1650,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── CALENDAR TAB ── */}
       {tab==="calendar"&&(
-        <div style={{flex:1,overflowY:"auto",padding:14}}>
+        <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
           {selectedDay?(
             <>
               <button onClick={()=>setSelectedDay(null)} style={{background:"transparent",border:"none",color:t.accent,cursor:"pointer",fontSize:14,marginBottom:12,padding:0}}>← Back</button>
@@ -1754,7 +1754,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
       {/* ── SETTINGS TAB ── */}
       {tab==="settings"&&(
-        <div style={{flex:1,overflowY:"auto",padding:14}}>
+        <div style={{flex:1,overflowY:"auto",padding:14,minHeight:0}}>
           <div style={{fontWeight:800,fontSize:18,marginBottom:16}}>Customise</div>
 
           <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Profile</div>
