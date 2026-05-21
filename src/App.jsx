@@ -567,26 +567,40 @@ export default function App() {
   const [dayAddStatus, setDayAddStatus] = useState("");
   const [dayVoiceActive, setDayVoiceActive] = useState(false);
   const [dayVoiceTranscript, setDayVoiceTranscript] = useState("");
+  const [dayPending, setDayPending] = useState(null); // {foods, text} awaiting confirm
   const dayVoiceCtrlRef = useRef(null);
+  // Reset the day-add box whenever you switch to a different date
+  useEffect(()=>{ setDayPending(null); setDayAddStatus(""); setDayAddText(""); },[selectedDay]);
 
-  const addToDay = useCallback(async(text, dateKey)=>{
+  const addToDay = useCallback(async(text)=>{
     const t=(text||"").trim();
-    if(!t || !dateKey) return;
-    setDayAddLoading(true); setDayAddStatus("");
+    if(!t) return;
+    setDayAddLoading(true); setDayAddStatus(""); setDayPending(null);
     try {
       const parsed = await callClaude([{role:"user",content:t}], UNIVERSAL_PROMPT);
       const type = parsed.type || "food";
       if(!parsed.unclear && parsed.foods?.length && (type==="food"||type==="both")){
-        addFoodsToDate(parsed.foods, dateKey);
-        const names = parsed.foods.map(f=>f.name).join(", ");
-        setDayAddStatus(`✓ Added ${names} to ${keyToDisplay(dateKey)}`);
+        // Hold for confirmation instead of adding immediately
+        setDayPending({ foods: parsed.foods, text: parsed.text || t });
         setDayAddText("");
       } else {
         setDayAddStatus(parsed.message || "Couldn't find a food in that — try again.");
       }
     } catch(err){ setDayAddStatus(`⚠️ ${err.message||"Something went wrong"}`); }
     setDayAddLoading(false);
-  },[addFoodsToDate]);
+  },[]);
+
+  const confirmDayFoods = useCallback((dateKey)=>{
+    if(!dayPending?.foods?.length || !dateKey) return;
+    addFoodsToDate(dayPending.foods, dateKey);
+    setDayAddStatus(`✅ Added to ${keyToDisplay(dateKey)}`);
+    setDayPending(null);
+  },[dayPending, addFoodsToDate]);
+
+  const cancelDayFoods = useCallback(()=>{
+    setDayPending(null);
+    setDayAddStatus("No worries — tell me again.");
+  },[]);
 
   const startDayVoice = useCallback(async(dateKey)=>{
     if(dayVoiceActive){ dayVoiceCtrlRef.current?.stop?.(); return; }
@@ -594,7 +608,7 @@ export default function App() {
     dayVoiceCtrlRef.current = await captureVoiceOnce({
       onStart: ()=>setDayVoiceActive(true),
       onPartial: (tx)=>setDayVoiceTranscript(tx),
-      onFinal: (tx)=>{ setDayVoiceActive(false); setDayVoiceTranscript(""); dayVoiceCtrlRef.current=null; if(tx) addToDay(tx, dateKey); },
+      onFinal: (tx)=>{ setDayVoiceActive(false); setDayVoiceTranscript(""); dayVoiceCtrlRef.current=null; if(tx) addToDay(tx); },
       onError: (msg)=>{ setDayVoiceActive(false); setDayVoiceTranscript(""); setDayAddStatus(`⚠️ ${msg}`); },
     });
   },[dayVoiceActive, addToDay]);
@@ -1757,15 +1771,29 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
                   <input value={dayAddText} placeholder="e.g. chicken salad and rice"
                     onChange={e=>setDayAddText(e.target.value)}
-                    onKeyDown={e=>{if(e.key==="Enter")addToDay(dayAddText, selectedDay);}}
+                    onKeyDown={e=>{if(e.key==="Enter")addToDay(dayAddText);}}
                     style={{flex:1,background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 12px",color:t.text,fontSize:16,outline:"none",boxSizing:"border-box"}}/>
                   <button onClick={()=>startDayVoice(selectedDay)} title="Speak"
                     style={{flexShrink:0,width:42,height:42,borderRadius:10,border:`1px solid ${t.border}`,background:dayVoiceActive?t.accent:t.card2,cursor:"pointer",fontSize:18}}>🎙️</button>
-                  <button onClick={()=>addToDay(dayAddText, selectedDay)} disabled={dayAddLoading||!dayAddText.trim()} title="Add"
+                  <button onClick={()=>addToDay(dayAddText)} disabled={dayAddLoading||!dayAddText.trim()} title="Add"
                     style={{flexShrink:0,width:42,height:42,borderRadius:10,border:"none",background:t.accent,color:t.accentText,cursor:dayAddLoading?"wait":"pointer",fontSize:18,fontWeight:800,opacity:(dayAddLoading||!dayAddText.trim())?0.5:1}}>↑</button>
                 </div>
                 {dayAddLoading&&<div style={{fontSize:12,color:t.muted,marginTop:8}}>Analysing…</div>}
-                {dayAddStatus&&!dayAddLoading&&<div style={{fontSize:12,color:dayAddStatus.startsWith("⚠️")?"#f87171":t.accent,marginTop:8,lineHeight:1.5}}>{dayAddStatus}</div>}
+
+                {/* Confirmation — show detected food and ask before adding */}
+                {dayPending&&!dayAddLoading&&(
+                  <div style={{marginTop:12}}>
+                    <div style={{fontSize:13,marginBottom:6}}>I picked up: <span style={{fontWeight:700}}>"{dayPending.text}"</span> — add this?</div>
+                    {dayPending.foods.map((f,fi)=><FoodChip key={fi} food={f} t={t}/>)}
+                    <div style={{display:"flex",gap:8,marginTop:10}}>
+                      <button onClick={()=>confirmDayFoods(selectedDay)}
+                        style={{flex:1,padding:"9px 12px",background:t.accent,color:t.accentText,border:"none",borderRadius:20,fontWeight:700,cursor:"pointer",fontSize:13}}>✓ Yes, add</button>
+                      <button onClick={cancelDayFoods}
+                        style={{flex:1,padding:"9px 12px",background:t.card2,color:t.text,border:`1px solid ${t.border}`,borderRadius:20,fontWeight:600,cursor:"pointer",fontSize:13}}>✗ No</button>
+                    </div>
+                  </div>
+                )}
+                {dayAddStatus&&!dayAddLoading&&!dayPending&&<div style={{fontSize:12,color:dayAddStatus.startsWith("⚠️")?"#f87171":t.accent,marginTop:8,lineHeight:1.5}}>{dayAddStatus}</div>}
               </div>
 
               {sdFoods.length>0?(
