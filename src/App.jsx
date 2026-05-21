@@ -1743,81 +1743,69 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             {smsStatus&&<div style={{marginTop:10,fontSize:12,color:smsStatus.startsWith("⚠️")?"#f87171":t.accent,lineHeight:1.5}}>{smsStatus}</div>}
           </div>
 
-          <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>🔔 Reminders</div>
+          <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>🔔 Reminder Schedule</div>
           <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
-            {notifPerm==="unsupported"&&(
-              <div style={{fontSize:13,color:t.muted}}>Notifications aren't supported in this browser.</div>
-            )}
-            {notifPerm==="default"&&(
-              <div>
-                <div style={{fontSize:13,color:t.muted,marginBottom:10}}>Enable notifications to get meal and protein reminders.</div>
-                <button onClick={requestNotifPerm} style={{background:t.accent,border:"none",borderRadius:10,padding:"10px 16px",cursor:"pointer",fontSize:13,fontWeight:700,color:t.accentText,width:"100%"}}>
-                  Enable Notifications
-                </button>
-              </div>
-            )}
-            {notifPerm==="denied"&&(
-              <div style={{fontSize:13,color:"#f87171"}}>Notifications blocked. Please allow them in your browser/phone settings, then reload.</div>
-            )}
-            {notifPerm==="granted"&&(
-              <div>
-                {/* Meal reminders */}
-                <div style={{fontWeight:700,fontSize:12,color:t.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:10}}>Meal Reminders</div>
-                {[
-                  {key:"breakfast", emoji:"🍳", label:"Breakfast"},
-                  {key:"lunch",     emoji:"🥗", label:"Lunch"},
-                  {key:"dinner",    emoji:"🍽️", label:"Dinner"},
-                ].map(({key,emoji,label})=>{
-                  const r=reminders[key]||{enabled:false,time:"08:00"};
-                  return (
-                    <div key={key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,background:t.card2,borderRadius:12,padding:"12px 14px"}}>
-                      <span style={{fontSize:18,flexShrink:0}}>{emoji}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{label}</div>
-                        <input type="time" value={r.time}
-                          onChange={e=>updReminder(key,{time:e.target.value})}
-                          style={{background:"transparent",border:`1px solid ${t.border}`,borderRadius:8,padding:"4px 8px",color:r.enabled?t.accent:t.muted,fontSize:12,outline:"none",colorScheme:t.dark?"dark":"light"}}/>
-                      </div>
-                      {/* Toggle */}
-                      <div onClick={()=>updReminder(key,{enabled:!r.enabled})} style={{
-                        width:44,height:24,borderRadius:99,cursor:"pointer",flexShrink:0,
-                        background:r.enabled?t.accent:t.border,position:"relative",transition:"background 0.2s"
-                      }}>
-                        <div style={{position:"absolute",top:3,left:r.enabled?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Protein reminder */}
-                <div style={{fontWeight:700,fontSize:12,color:t.muted,textTransform:"uppercase",letterSpacing:0.8,margin:"16px 0 10px"}}>Protein Reminder</div>
-                <div style={{background:t.card2,borderRadius:12,padding:"14px"}}>
-                  <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
-                    <span style={{fontSize:20,flexShrink:0,marginTop:2}}>💪</span>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>Hourly Protein Check</div>
-                      <div style={{fontSize:12,color:t.muted,lineHeight:1.5}}>
-                        Reminds you every hour how close you are to your protein goal.
-                        <span style={{color:t.accent,fontWeight:600}}> Silent 9pm – 5am.</span>
-                      </div>
-                      <div style={{marginTop:8,fontSize:11,color:t.muted,background:t.border,borderRadius:8,padding:"6px 10px",lineHeight:1.5}}>
-                        e.g. "54g / 150g protein so far (36%). Keep it up!"
-                      </div>
-                    </div>
-                    {/* Toggle */}
-                    <div onClick={()=>updReminder("protein",{enabled:!reminders.protein?.enabled})} style={{
-                      width:44,height:24,borderRadius:99,cursor:"pointer",flexShrink:0,marginTop:2,
-                      background:reminders.protein?.enabled?t.accent:t.border,position:"relative",transition:"background 0.2s"
-                    }}>
-                      <div style={{position:"absolute",top:3,left:reminders.protein?.enabled?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
-                    </div>
+            <div style={{fontSize:12,color:t.muted,lineHeight:1.5,marginBottom:12}}>
+              Set your meal times below. These drive both 📱 SMS reminders and browser notifications. <span style={{color:t.accent,fontWeight:600}}>After changing times, tap "Save SMS settings" above to sync.</span>
+            </div>
+            {/* Meal reminders */}
+            <div style={{fontWeight:700,fontSize:12,color:t.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:10}}>Meal Reminders</div>
+            {[
+              {key:"breakfast", emoji:"🍳", label:"Breakfast"},
+              {key:"lunch",     emoji:"🥗", label:"Lunch"},
+              {key:"dinner",    emoji:"🍽️", label:"Dinner"},
+            ].map(({key,emoji,label})=>{
+              const r=reminders[key]||{enabled:false,time:"08:00"};
+              return (
+                <div key={key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,background:t.card2,borderRadius:12,padding:"12px 14px"}}>
+                  <span style={{fontSize:18,flexShrink:0}}>{emoji}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{label}</div>
+                    <input type="time" value={r.time}
+                      onChange={e=>updReminder(key,{time:e.target.value})}
+                      style={{background:"transparent",border:`1px solid ${t.border}`,borderRadius:8,padding:"4px 8px",color:r.enabled?t.accent:t.muted,fontSize:12,outline:"none",colorScheme:t.dark?"dark":"light"}}/>
+                  </div>
+                  {/* Toggle */}
+                  <div onClick={()=>updReminder(key,{enabled:!r.enabled})} style={{
+                    width:44,height:24,borderRadius:99,cursor:"pointer",flexShrink:0,
+                    background:r.enabled?t.accent:t.border,position:"relative",transition:"background 0.2s"
+                  }}>
+                    <div style={{position:"absolute",top:3,left:r.enabled?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
                   </div>
                 </div>
+              );
+            })}
 
-                <div style={{fontSize:11,color:t.muted,marginTop:12,lineHeight:1.5}}>
-                  ⚠️ iPhone: only works after adding to Home Screen via Safari. Keep the app open or running in background.
+            {/* Protein reminder */}
+            <div style={{fontWeight:700,fontSize:12,color:t.muted,textTransform:"uppercase",letterSpacing:0.8,margin:"16px 0 10px"}}>Protein Reminder</div>
+            <div style={{background:t.card2,borderRadius:12,padding:"14px"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                <span style={{fontSize:20,flexShrink:0,marginTop:2}}>💪</span>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>Hourly Protein Check</div>
+                  <div style={{fontSize:12,color:t.muted,lineHeight:1.5}}>
+                    Reminds you every hour to log protein.
+                    <span style={{color:t.accent,fontWeight:600}}> Silent 9pm – 5am.</span>
+                  </div>
+                </div>
+                {/* Toggle */}
+                <div onClick={()=>updReminder("protein",{enabled:!reminders.protein?.enabled})} style={{
+                  width:44,height:24,borderRadius:99,cursor:"pointer",flexShrink:0,marginTop:2,
+                  background:reminders.protein?.enabled?t.accent:t.border,position:"relative",transition:"background 0.2s"
+                }}>
+                  <div style={{position:"absolute",top:3,left:reminders.protein?.enabled?22:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/>
                 </div>
               </div>
+            </div>
+
+            {/* Optional browser notifications */}
+            {notifPerm==="default"&&(
+              <button onClick={requestNotifPerm} style={{marginTop:12,background:"transparent",border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 16px",cursor:"pointer",fontSize:12,fontWeight:600,color:t.muted,width:"100%"}}>
+                🔔 Also enable browser notifications (optional)
+              </button>
+            )}
+            {notifPerm==="granted"&&(
+              <div style={{fontSize:11,color:t.accent,marginTop:12}}>✓ Browser notifications enabled (when app is open)</div>
             )}
           </div>
 
