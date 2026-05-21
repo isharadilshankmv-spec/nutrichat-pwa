@@ -2149,7 +2149,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
           <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>🔔 Reminder Schedule</div>
           <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
             <div style={{fontSize:12,color:t.muted,lineHeight:1.5,marginBottom:12}}>
-              Set your meal times below. These drive both 📱 SMS reminders and browser notifications. <span style={{color:t.accent,fontWeight:600}}>After changing times, tap "Save SMS settings" above to sync.</span>
+              Set your meal times below. These drive both 📱 SMS reminders and browser notifications. <span style={{color:t.accent,fontWeight:600}}>After changing anything, tap "Save reminder settings" at the bottom to sync.</span>
             </div>
             {/* Meal reminders */}
             <div style={{fontWeight:700,fontSize:12,color:t.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:10}}>Meal Reminders</div>
@@ -2210,6 +2210,13 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             {notifPerm==="granted"&&(
               <div style={{fontSize:11,color:t.accent,marginTop:12}}>✓ Browser notifications enabled (when app is open)</div>
             )}
+
+            {/* Save button right here with the reminder settings */}
+            <button onClick={saveSmsConfig} disabled={smsSaving}
+              style={{marginTop:16,width:"100%",background:t.accent,color:t.accentText,border:"none",borderRadius:10,padding:"13px",fontSize:14,fontWeight:700,cursor:smsSaving?"wait":"pointer",opacity:smsSaving?0.6:1}}>
+              {smsSaving?"Working…":"💾 Save reminder settings"}
+            </button>
+            {smsStatus&&<div style={{marginTop:10,fontSize:12,color:smsStatus.startsWith("⚠️")?"#f87171":t.accent,lineHeight:1.5}}>{smsStatus}</div>}
           </div>
 
           {supabaseEnabled&&session&&(
