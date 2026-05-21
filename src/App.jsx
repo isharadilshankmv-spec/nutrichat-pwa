@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { supabase, supabaseEnabled } from "./supabase";
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 const load = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)||"null") ?? fb; } catch { return fb; } };
@@ -655,6 +656,87 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
   const bodyFatFileRef = useRef(null);
   useEffect(()=>{save("nc_bodyfat",bodyFatLog);},[bodyFatLog]);
 
+  // ── Auth + cloud sync (Supabase) ──
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(!supabaseEnabled); // if no Supabase, skip auth
+  const [cloudLoaded, setCloudLoaded] = useState(!supabaseEnabled);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const cloudSyncTimer = useRef(null);
+
+  // Detect existing session + subscribe to auth changes
+  useEffect(()=>{
+    if(!supabaseEnabled) return;
+    supabase.auth.getSession().then(({data})=>{ setSession(data.session); setAuthReady(true); });
+    const { data:sub } = supabase.auth.onAuthStateChange((_e, sess)=>{
+      setSession(sess);
+      if(!sess) setCloudLoaded(false);
+    });
+    return ()=>sub.subscription.unsubscribe();
+  },[]);
+
+  // On login, pull this account's cloud data (fresh start if none yet)
+  useEffect(()=>{
+    if(!supabaseEnabled || !session){ return; }
+    let cancelled = false;
+    (async()=>{
+      const { data } = await supabase.from("user_state")
+        .select("data, settings, weight, bodyfat")
+        .eq("user_id", session.user.id).maybeSingle();
+      if(cancelled) return;
+      if(data){
+        setAllData(data.data || {});
+        if(data.settings) setSettings(s=>({...s, ...data.settings}));
+        setWeightLog(Array.isArray(data.weight)?data.weight:[]);
+        setBodyFatLog(Array.isArray(data.bodyfat)?data.bodyfat:[]);
+      } else {
+        // New account → start empty (per fresh-start choice)
+        setAllData({}); setWeightLog([]); setBodyFatLog([]);
+      }
+      setCloudLoaded(true);
+    })();
+    return ()=>{ cancelled = true; };
+  },[session]);
+
+  // Debounced push to cloud whenever synced data changes
+  useEffect(()=>{
+    if(!supabaseEnabled || !session || !cloudLoaded) return;
+    clearTimeout(cloudSyncTimer.current);
+    cloudSyncTimer.current = setTimeout(()=>{
+      supabase.from("user_state").upsert({
+        user_id: session.user.id,
+        data: allData, settings, weight: weightLog, bodyfat: bodyFatLog,
+        updated_at: new Date().toISOString(),
+      }).then(({error})=>{ if(error) console.error("[NutriChat sync]", error.message); });
+    }, 1500);
+    return ()=>clearTimeout(cloudSyncTimer.current);
+  },[allData, settings, weightLog, bodyFatLog, session, cloudLoaded]);
+
+  const signInEmail = async()=>{
+    if(!authEmail || !authPassword){ setAuthError("Enter email and password"); return; }
+    setAuthBusy(true); setAuthError("");
+    const fn = authMode==="signup" ? supabase.auth.signUp : supabase.auth.signInWithPassword;
+    const { error } = await fn.call(supabase.auth, { email:authEmail.trim(), password:authPassword });
+    if(error) setAuthError(error.message);
+    else if(authMode==="signup") setAuthError("Check your email to confirm, then sign in.");
+    setAuthBusy(false);
+  };
+
+  const signInGoogle = async()=>{
+    setAuthBusy(true); setAuthError("");
+    const redirectTo = IS_NATIVE ? "com.nutrichat.app://login-callback" : window.location.origin;
+    const { error } = await supabase.auth.signInWithOAuth({ provider:"google", options:{ redirectTo } });
+    if(error){ setAuthError(error.message); setAuthBusy(false); }
+  };
+
+  const signOut = async()=>{
+    if(supabaseEnabled) await supabase.auth.signOut();
+    setSession(null); setCloudLoaded(false);
+  };
+
   // ── Barcode scanner (ZXing + Open Food Facts) ──
   const startBarcode = async()=>{
     setBarcodeActive(true); setBarcodeStatus("Starting camera...");
@@ -781,6 +863,64 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   const iStyle={background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 14px",color:t.text,fontSize:14,outline:"none",width:"100%",fontFamily:"inherit"};
   const sdTotals=selectedDay?getDayTotals(selectedDay):null;
   const sdFoods=selectedDay?(allData[selectedDay]?.foods||[]):[];
+
+  // ── Auth gate ──
+  if(supabaseEnabled && (!authReady || (session && !cloudLoaded))){
+    return (
+      <div style={{background:t.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:t.text,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:30,fontWeight:800,marginBottom:10}}>Nutri<span style={{color:t.accent}}>Chat</span></div>
+          <div style={{color:t.muted,fontSize:14}}>{!authReady?"Loading…":"Syncing your data…"}</div>
+        </div>
+      </div>
+    );
+  }
+  if(supabaseEnabled && !session){
+    return (
+      <div style={{background:t.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,color:t.text,fontFamily:"'DM Sans','Segoe UI',sans-serif",width:"100%",maxWidth:420,margin:"0 auto"}}>
+        <div style={{fontSize:34,fontWeight:800,marginBottom:6}}>Nutri<span style={{color:t.accent}}>Chat</span></div>
+        <div style={{color:t.muted,fontSize:14,marginBottom:28,textAlign:"center"}}>Your AI calorie & macro tracker</div>
+
+        <div style={{width:"100%",background:t.card,border:`1px solid ${t.border}`,borderRadius:16,padding:20}}>
+          <div style={{fontWeight:800,fontSize:18,marginBottom:16}}>{authMode==="signup"?"Create your account":"Welcome back"}</div>
+
+          <input type="email" placeholder="Email" value={authEmail} autoCapitalize="none" autoCorrect="off"
+            onChange={e=>setAuthEmail(e.target.value)}
+            style={{width:"100%",background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"12px 14px",color:t.text,fontSize:15,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+          <input type="password" placeholder="Password" value={authPassword}
+            onChange={e=>setAuthPassword(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter")signInEmail();}}
+            style={{width:"100%",background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"12px 14px",color:t.text,fontSize:15,outline:"none",marginBottom:14,boxSizing:"border-box"}}/>
+
+          <button onClick={signInEmail} disabled={authBusy}
+            style={{width:"100%",background:t.accent,color:t.accentText,border:"none",borderRadius:10,padding:"13px",fontSize:15,fontWeight:700,cursor:authBusy?"wait":"pointer",opacity:authBusy?0.6:1,marginBottom:12}}>
+            {authBusy?"Please wait…":(authMode==="signup"?"Sign up":"Sign in")}
+          </button>
+
+          <div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}>
+            <div style={{flex:1,height:1,background:t.border}}/>
+            <span style={{color:t.muted,fontSize:12}}>or</span>
+            <div style={{flex:1,height:1,background:t.border}}/>
+          </div>
+
+          <button onClick={signInGoogle} disabled={authBusy}
+            style={{width:"100%",background:t.card2,color:t.text,border:`1px solid ${t.border}`,borderRadius:10,padding:"13px",fontSize:15,fontWeight:700,cursor:authBusy?"wait":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+            <span style={{fontSize:18}}>🇬</span> Continue with Google
+          </button>
+
+          {authError&&<div style={{marginTop:14,fontSize:13,color:authError.startsWith("Check")?t.accent:"#f87171",lineHeight:1.5}}>{authError}</div>}
+
+          <div style={{marginTop:18,textAlign:"center",fontSize:13,color:t.muted}}>
+            {authMode==="signup"?"Already have an account? ":"New here? "}
+            <span onClick={()=>{setAuthMode(authMode==="signup"?"signin":"signup");setAuthError("");}}
+              style={{color:t.accent,fontWeight:700,cursor:"pointer"}}>
+              {authMode==="signup"?"Sign in":"Create one"}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{background:t.bg,minHeight:"100vh",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflowX:"hidden"}}>
@@ -1808,6 +1948,21 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
               <div style={{fontSize:11,color:t.accent,marginTop:12}}>✓ Browser notifications enabled (when app is open)</div>
             )}
           </div>
+
+          {supabaseEnabled&&session&&(
+            <>
+              <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>👤 Account</div>
+              <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
+                <div style={{fontSize:13,color:t.muted,marginBottom:4}}>Signed in as</div>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:12,wordBreak:"break-all"}}>{session.user.email||session.user.user_metadata?.email||"Google account"}</div>
+                <div style={{fontSize:11,color:t.accent,marginBottom:12}}>☁️ Your data syncs to the cloud automatically</div>
+                <button onClick={signOut}
+                  style={{background:"transparent",border:`1px solid ${t.border}`,color:t.text,borderRadius:10,padding:"10px 16px",cursor:"pointer",fontSize:13,width:"100%",fontWeight:600}}>
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
 
           <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Data</div>
           <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:32}}>
