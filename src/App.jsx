@@ -101,6 +101,48 @@ async function callClaudeText(messages, system, maxTokens=1200) {
   return data.content?.find(b=>b.type==="text")?.text || "";
 }
 
+// Reusable voice capture (native plugin or Web Speech API). Calls handlers and
+// returns a controller with .stop(). Stops 2.5s after the last word (or 30s cap).
+async function captureVoiceOnce({ onStart, onPartial, onFinal, onError }) {
+  if (IS_NATIVE) {
+    try {
+      const { SpeechRecognition } = await import("@capacitor-community/speech-recognition");
+      const { available } = await SpeechRecognition.available();
+      if (!available) { onError?.("Speech recognition not available"); return null; }
+      let perm = await SpeechRecognition.checkPermissions();
+      if (perm.speechRecognition !== "granted") perm = await SpeechRecognition.requestPermissions();
+      if (perm.speechRecognition !== "granted") { onError?.("Allow microphone access in Settings"); return null; }
+      let transcript = "", silence = null, max = null, done = false;
+      const finish = async () => {
+        if (done) return; done = true;
+        clearTimeout(silence); clearTimeout(max);
+        try { await SpeechRecognition.stop(); } catch {}
+        try { await SpeechRecognition.removeAllListeners(); } catch {}
+        onFinal?.(transcript.trim());
+      };
+      await SpeechRecognition.addListener("partialResults", (data) => {
+        const tx = (data.matches?.[0] || "").trim();
+        if (tx) { transcript = tx; onPartial?.(tx); clearTimeout(silence); silence = setTimeout(finish, 2500); }
+      });
+      onStart?.();
+      max = setTimeout(finish, 30000);
+      await SpeechRecognition.start({ language: "en-US", partialResults: true, popup: false });
+      return { stop: finish };
+    } catch (err) { onError?.(err?.message || "Voice error"); return null; }
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { onError?.("Voice needs Chrome or Safari"); return null; }
+  const r = new SR();
+  r.continuous = true; r.interimResults = true; r.lang = "en-US";
+  let transcript = "", silence = null, max = null;
+  r.onstart = () => { onStart?.(); max = setTimeout(() => r.stop(), 30000); };
+  r.onresult = (e) => { transcript = Array.from(e.results).map(x => x[0].transcript).join(""); onPartial?.(transcript); clearTimeout(silence); silence = setTimeout(() => r.stop(), 2500); };
+  r.onend = () => { clearTimeout(silence); clearTimeout(max); onFinal?.(transcript.trim()); };
+  r.onerror = (e) => { clearTimeout(silence); clearTimeout(max); if (e.error !== "no-speech" && e.error !== "aborted") onError?.(e.error); };
+  r.start();
+  return { stop: () => r.stop() };
+}
+
 // ─── Theme ────────────────────────────────────────────────────────────────────
 function getTheme(s) {
   const dark = s.theme !== "light";
@@ -510,6 +552,53 @@ export default function App() {
     });
   },[today]);
 
+  // Add foods to a SPECIFIC date (used by the calendar day add).
+  const addFoodsToDate = useCallback((foods, dateKey)=>{
+    const time=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+    setAllData(prev=>{
+      const day=prev[dateKey]||{foods:[]};
+      return {...prev,[dateKey]:{...day,foods:[...day.foods,...foods.map(f=>({...f,time}))]}};
+    });
+  },[]);
+
+  // ── Calendar day add (voice or text → that date) ──
+  const [dayAddText, setDayAddText] = useState("");
+  const [dayAddLoading, setDayAddLoading] = useState(false);
+  const [dayAddStatus, setDayAddStatus] = useState("");
+  const [dayVoiceActive, setDayVoiceActive] = useState(false);
+  const [dayVoiceTranscript, setDayVoiceTranscript] = useState("");
+  const dayVoiceCtrlRef = useRef(null);
+
+  const addToDay = useCallback(async(text, dateKey)=>{
+    const t=(text||"").trim();
+    if(!t || !dateKey) return;
+    setDayAddLoading(true); setDayAddStatus("");
+    try {
+      const parsed = await callClaude([{role:"user",content:t}], UNIVERSAL_PROMPT);
+      const type = parsed.type || "food";
+      if(!parsed.unclear && parsed.foods?.length && (type==="food"||type==="both")){
+        addFoodsToDate(parsed.foods, dateKey);
+        const names = parsed.foods.map(f=>f.name).join(", ");
+        setDayAddStatus(`✓ Added ${names} to ${keyToDisplay(dateKey)}`);
+        setDayAddText("");
+      } else {
+        setDayAddStatus(parsed.message || "Couldn't find a food in that — try again.");
+      }
+    } catch(err){ setDayAddStatus(`⚠️ ${err.message||"Something went wrong"}`); }
+    setDayAddLoading(false);
+  },[addFoodsToDate]);
+
+  const startDayVoice = useCallback(async(dateKey)=>{
+    if(dayVoiceActive){ dayVoiceCtrlRef.current?.stop?.(); return; }
+    setDayVoiceTranscript(""); setDayAddStatus("");
+    dayVoiceCtrlRef.current = await captureVoiceOnce({
+      onStart: ()=>setDayVoiceActive(true),
+      onPartial: (tx)=>setDayVoiceTranscript(tx),
+      onFinal: (tx)=>{ setDayVoiceActive(false); setDayVoiceTranscript(""); dayVoiceCtrlRef.current=null; if(tx) addToDay(tx, dateKey); },
+      onError: (msg)=>{ setDayVoiceActive(false); setDayVoiceTranscript(""); setDayAddStatus(`⚠️ ${msg}`); },
+    });
+  },[dayVoiceActive, addToDay]);
+
   const dispatchResult = useCallback((parsed, source="text")=>{
     if(parsed.unclear){
       setMessages(prev=>[...prev,{role:"assistant",text:parsed.message||"Could you be more specific?"}]);
@@ -880,7 +969,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   const getDayTotals=(key)=>(allData[key]?.foods||[]).reduce((a,f)=>({cal:a.cal+(f.calories||0),p:a.p+(f.protein||0),c:a.c+(f.carbs||0),f:a.f+(f.fat||0)}),{cal:0,p:0,c:0,f:0});
 
   const upd=(k,v)=>setSettings(s=>({...s,[k]:v}));
-  const iStyle={background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 14px",color:t.text,fontSize:14,outline:"none",width:"100%",fontFamily:"inherit"};
+  const iStyle={background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 14px",color:t.text,fontSize:16,outline:"none",width:"100%",fontFamily:"inherit"};
   const sdTotals=selectedDay?getDayTotals(selectedDay):null;
   const sdFoods=selectedDay?(allData[selectedDay]?.foods||[]):[];
 
@@ -1655,6 +1744,30 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             <>
               <button onClick={()=>setSelectedDay(null)} style={{background:"transparent",border:"none",color:t.accent,cursor:"pointer",fontSize:14,marginBottom:12,padding:0}}>← Back</button>
               <div style={{fontWeight:700,fontSize:17,marginBottom:12}}>{keyToDisplay(selectedDay)}</div>
+
+              {/* Add food to this specific day (voice or text) */}
+              <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:12,marginBottom:16}}>
+                <div style={{fontSize:12,color:t.muted,fontWeight:700,marginBottom:8}}>➕ Add to this day</div>
+                {dayVoiceActive&&(
+                  <div style={{background:t.accent,color:t.accentText,borderRadius:12,padding:"10px 12px",fontSize:14,marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:16,animation:"micpulse 1s infinite"}}>🎙️</span>
+                    <span style={{fontStyle:dayVoiceTranscript?"normal":"italic",opacity:dayVoiceTranscript?1:0.75}}>{dayVoiceTranscript||"Listening… speak now"}</span>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input value={dayAddText} placeholder="e.g. chicken salad and rice"
+                    onChange={e=>setDayAddText(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter")addToDay(dayAddText, selectedDay);}}
+                    style={{flex:1,background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 12px",color:t.text,fontSize:16,outline:"none",boxSizing:"border-box"}}/>
+                  <button onClick={()=>startDayVoice(selectedDay)} title="Speak"
+                    style={{flexShrink:0,width:42,height:42,borderRadius:10,border:`1px solid ${t.border}`,background:dayVoiceActive?t.accent:t.card2,cursor:"pointer",fontSize:18}}>🎙️</button>
+                  <button onClick={()=>addToDay(dayAddText, selectedDay)} disabled={dayAddLoading||!dayAddText.trim()} title="Add"
+                    style={{flexShrink:0,width:42,height:42,borderRadius:10,border:"none",background:t.accent,color:t.accentText,cursor:dayAddLoading?"wait":"pointer",fontSize:18,fontWeight:800,opacity:(dayAddLoading||!dayAddText.trim())?0.5:1}}>↑</button>
+                </div>
+                {dayAddLoading&&<div style={{fontSize:12,color:t.muted,marginTop:8}}>Analysing…</div>}
+                {dayAddStatus&&!dayAddLoading&&<div style={{fontSize:12,color:dayAddStatus.startsWith("⚠️")?"#f87171":t.accent,marginTop:8,lineHeight:1.5}}>{dayAddStatus}</div>}
+              </div>
+
               {sdFoods.length>0?(
                 <>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
