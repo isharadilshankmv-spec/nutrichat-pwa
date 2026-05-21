@@ -237,6 +237,22 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null);
   const fileRef = useRef(null);
   const bottomRef = useRef(null);
+
+  // Native keyboard handling: with resize:"none" the webview never shifts (no black
+  // margin / no zoom-stuck). We lift the layout by the keyboard height instead.
+  const [kbOffset, setKbOffset] = useState(0);
+  useEffect(()=>{
+    if(!IS_NATIVE) return;
+    let showSub, hideSub;
+    (async()=>{
+      try {
+        const { Keyboard } = await import("@capacitor/keyboard");
+        showSub = await Keyboard.addListener("keyboardWillShow", (info)=>setKbOffset(info?.keyboardHeight||0));
+        hideSub = await Keyboard.addListener("keyboardWillHide", ()=>setKbOffset(0));
+      } catch {}
+    })();
+    return ()=>{ showSub?.remove?.(); hideSub?.remove?.(); };
+  },[]);
   const t = getTheme(settings);
   const today = todayKey();
   const todayFoods = allData[today]?.foods || [];
@@ -1062,7 +1078,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   }
 
   return (
-    <div style={{background:t.bg,height:"100%",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflow:"hidden"}}>
+    <div style={{background:t.bg,height:kbOffset>0?`calc(100% - ${kbOffset}px)`:"100%",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflow:"hidden",transition:"height 0.2s ease"}}>
 
       {/* ── HEADER ── */}
       <div style={{paddingTop:"calc(env(safe-area-inset-top) + 14px)",paddingLeft:16,paddingRight:16,paddingBottom:0,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,zIndex:10}}>

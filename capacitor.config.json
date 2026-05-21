@@ -3,6 +3,11 @@
   "appName": "NutriChat",
   "webDir": "dist",
   "ios": {
-    "contentInset": "always"
+    "contentInset": "never"
+  },
+  "plugins": {
+    "Keyboard": {
+      "resize": "none"
+    }
   }
 }
