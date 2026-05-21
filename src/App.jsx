@@ -783,7 +783,7 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   const sdFoods=selectedDay?(allData[selectedDay]?.foods||[]):[];
 
   return (
-    <div style={{background:t.bg,minHeight:"100vh",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto"}}>
+    <div style={{background:t.bg,minHeight:"100vh",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflowX:"hidden"}}>
 
       {/* ── HEADER ── */}
       <div style={{padding:"16px 16px 0",borderBottom:`1px solid ${t.border}`,background:t.bg,position:"sticky",top:0,zIndex:10}}>
