@@ -567,7 +567,7 @@ export default function App() {
       if(!session){ setSiriStatus("⚠️ Please sign in first."); setSiriBusy(false); return; }
       const r = await fetch("https://nutrichat-pwa.vercel.app/api/siri",{
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ action:"register", key:siriKey, accessToken:session.access_token, refreshToken:session.refresh_token })
+        body: JSON.stringify({ action:"register", key:siriKey, accessToken:session.access_token, refreshToken:session.refresh_token, timezone:(Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC") })
       });
       const d = await r.json();
       if(!r.ok) throw new Error(d.error||"Link failed");

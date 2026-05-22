@@ -32,6 +32,13 @@ async function kvDel(key) {
   await fetch(`${KV_URL}/del/${encodeURIComponent(key)}`, { method: "POST", headers: { Authorization: `Bearer ${KV_TOKEN}` } });
 }
 
+function localDate(tz) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz || "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+function localTime(tz) {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: tz || "UTC", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+}
+
 // Mint a fresh access token from the stored refresh token; persist the rotated one.
 async function freshSession(siriKey) {
   const rec = await kvGet("siri:" + siriKey);
@@ -44,11 +51,12 @@ async function freshSession(siriKey) {
   if (!r.ok) return null;
   const s = await r.json();
   if (!s?.access_token) return null;
+  const timezone = rec.timezone || "UTC";
   // Refresh tokens rotate — store the new one so the key keeps working.
   if (s.refresh_token && s.refresh_token !== rec.refreshToken) {
-    await kvSet("siri:" + siriKey, { refreshToken: s.refresh_token, userId: s.user?.id || rec.userId });
+    await kvSet("siri:" + siriKey, { refreshToken: s.refresh_token, userId: s.user?.id || rec.userId, timezone });
   }
-  return { accessToken: s.access_token, userId: s.user?.id || rec.userId };
+  return { accessToken: s.access_token, userId: s.user?.id || rec.userId, timezone };
 }
 
 async function parseWithClaude(text) {
@@ -111,7 +119,7 @@ export default async function handler(req, res) {
       if (!r.ok) return res.status(401).json({ error: "Invalid session" });
       const u = await r.json();
       if (!u?.id) return res.status(401).json({ error: "No user" });
-      await kvSet("siri:" + key, { refreshToken, userId: u.id });
+      await kvSet("siri:" + key, { refreshToken, userId: u.id, timezone: req.body.timezone || "UTC" });
       return res.status(200).json({ ok: true });
     }
 
@@ -126,9 +134,8 @@ export default async function handler(req, res) {
       if (!parsed || parsed.kind === "none" || (!parsed.foods?.length && !parsed.weightKg)) {
         return res.status(200).json({ found: false, speak: "I couldn't find any food or weight in that. Try again." });
       }
-      const date = (req.body.date || new Date().toISOString().slice(0, 10));
-      const time = req.body.time || "";
-      await kvSet("siripending:" + key, { foods: parsed.foods || [], weightKg: parsed.weightKg || null, date, time }, 300);
+      const date = req.body.date || localDate(sess.timezone);
+      await kvSet("siripending:" + key, { foods: parsed.foods || [], weightKg: parsed.weightKg || null, date }, 300);
       return res.status(200).json({ found: true, summary: parsed.summary || "that", speak: `${parsed.summary || "that"}. Should I add it?` });
     }
 
@@ -144,7 +151,7 @@ export default async function handler(req, res) {
       const state = await readState(sess.accessToken, sess.userId);
       const patch = {};
       const date = pending.date;
-      const time = pending.time || new Date().toISOString().slice(11, 16);
+      const time = localTime(sess.timezone);
       let spoke = [];
 
       if (pending.foods?.length) {
