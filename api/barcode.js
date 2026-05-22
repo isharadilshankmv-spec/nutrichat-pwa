@@ -30,7 +30,10 @@ export default async function handler(req, res) {
     const n = p.nutriments || {};
     const servG = parseFloat(p.serving_quantity) || 100;
     const fac = servG / 100;
-    const name = [p.brands?.split(",")[0]?.trim(), p.product_name].filter(Boolean).join(" ").trim() || "Scanned product";
+    const brand = p.brands?.split(",")[0]?.trim() || "";
+    const pname = (p.product_name || "").trim();
+    const name = brand && pname && !pname.toLowerCase().includes(brand.toLowerCase())
+      ? `${brand} ${pname}` : (pname || brand || "Scanned product");
 
     return res.status(200).json({
       found: true,

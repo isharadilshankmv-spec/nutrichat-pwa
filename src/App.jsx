@@ -349,7 +349,7 @@ export default function App() {
         setMessages(prev=>[...prev,{role:"user", text, isVoice:true}]);
         setLoading(true);
         try {
-          const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
+          const parsed = await callClaude([{role:"user",content:text}], buildFoodPrompt());
           dispatchResult(parsed, "voice");
         } catch(err) { setMessages(prev=>[...prev,{role:"assistant",text:`⚠️ ${err.message||"Something went wrong"}. Please try again!`}]); }
         setLoading(false);
@@ -425,7 +425,7 @@ export default function App() {
       setMessages(prev=>[...prev,{role:"user", text, isVoice:true}]);
       setLoading(true);
       try {
-        const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
+        const parsed = await callClaude([{role:"user",content:text}], buildFoodPrompt());
         dispatchResult(parsed, "voice");
       } catch(err) { setMessages(prev=>[...prev,{role:"assistant",text:`⚠️ ${err.message||"Something went wrong"}. Please try again!`}]); }
       setLoading(false);
@@ -587,22 +587,48 @@ export default function App() {
   useEffect(()=>{save("nc_settings",settings);},[settings]);
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
 
+  // ── Remembered foods — the app learns your usual items so the AI reuses them ──
+  const [knownFoods, setKnownFoods] = useState(()=>load("nc_known_foods",{}));
+  const knownFoodsRef = useRef(knownFoods);
+  useEffect(()=>{ knownFoodsRef.current = knownFoods; save("nc_known_foods", knownFoods); },[knownFoods]);
+  const recordFoods = useCallback((foods)=>{
+    if(!Array.isArray(foods)||!foods.length) return;
+    setKnownFoods(prev=>{
+      const next={...prev};
+      for(const f of foods){
+        if(!f?.name||typeof f.calories!=="number") continue;
+        const key=f.name.trim().toLowerCase();
+        next[key]={ name:f.name, amount:f.amount||"1 serving", calories:f.calories, protein:f.protein||0, carbs:f.carbs||0, fat:f.fat||0, count:(prev[key]?.count||0)+1 };
+      }
+      return next;
+    });
+  },[]);
+  // System prompt augmented with the user's frequent foods (read via ref so it's always current)
+  function buildFoodPrompt(){
+    const top=Object.values(knownFoodsRef.current||{}).sort((a,b)=>(b.count||0)-(a.count||0)).slice(0,25);
+    if(!top.length) return UNIVERSAL_PROMPT;
+    const list=top.map(f=>`- ${f.name} (${f.amount}): ${f.calories} cal, P${f.protein} C${f.carbs} F${f.fat}`).join("\n");
+    return UNIVERSAL_PROMPT+`\n\nUSER'S FREQUENT FOODS — if the user mentions one of these (or an obvious match/abbreviation), REUSE these exact numbers instead of estimating:\n${list}`;
+  }
+
   const addFoods = useCallback((foods)=>{
     const time=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+    recordFoods(foods);
     setAllData(prev=>{
       const day=prev[today]||{foods:[]};
       return {...prev,[today]:{...day,foods:[...day.foods,...foods.map(f=>({...f,time}))]}};
     });
-  },[today]);
+  },[today,recordFoods]);
 
   // Add foods to a SPECIFIC date (used by the calendar day add).
   const addFoodsToDate = useCallback((foods, dateKey)=>{
     const time=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+    recordFoods(foods);
     setAllData(prev=>{
       const day=prev[dateKey]||{foods:[]};
       return {...prev,[dateKey]:{...day,foods:[...day.foods,...foods.map(f=>({...f,time}))]}};
     });
-  },[]);
+  },[recordFoods]);
 
   // ── Calendar day add (voice or text → that date) ──
   const [dayAddText, setDayAddText] = useState("");
@@ -620,7 +646,7 @@ export default function App() {
     if(!t) return;
     setDayAddLoading(true); setDayAddStatus(""); setDayPending(null);
     try {
-      const parsed = await callClaude([{role:"user",content:t}], UNIVERSAL_PROMPT);
+      const parsed = await callClaude([{role:"user",content:t}], buildFoodPrompt());
       const type = parsed.type || "food";
       if(!parsed.unclear && parsed.foods?.length && (type==="food"||type==="both")){
         // Hold for confirmation instead of adding immediately
@@ -719,7 +745,7 @@ export default function App() {
     const text=input.trim(); if(!text||loading) return;
     setInput(""); setMessages(prev=>[...prev,{role:"user",text}]); setLoading(true);
     try {
-      const parsed = await callClaude([{role:"user",content:text}], UNIVERSAL_PROMPT);
+      const parsed = await callClaude([{role:"user",content:text}], buildFoodPrompt());
       dispatchResult(parsed);
     } catch(err) { setMessages(prev=>[...prev,{role:"assistant",text:`⚠️ ${err.message||"Something went wrong"}. Please try again!`}]); }
     setLoading(false);
