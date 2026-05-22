@@ -551,6 +551,31 @@ export default function App() {
     setSmsSaving(false);
   };
 
+  // ── Siri hands-free logging ──
+  const [siriKey] = useState(()=>{
+    let k=localStorage.getItem("nc_siri_key");
+    if(!k){ k=(typeof crypto!=="undefined"&&crypto.randomUUID)?crypto.randomUUID():(Math.random().toString(36).slice(2)+Date.now().toString(36)); localStorage.setItem("nc_siri_key",k); }
+    return k;
+  });
+  const [siriBusy, setSiriBusy] = useState(false);
+  const [siriStatus, setSiriStatus] = useState("");
+  const linkSiri = async()=>{
+    if(!supabaseEnabled){ setSiriStatus("⚠️ Sign in first to link Siri."); return; }
+    setSiriBusy(true); setSiriStatus("");
+    try {
+      const { data:{ session } } = await supabase.auth.getSession();
+      if(!session){ setSiriStatus("⚠️ Please sign in first."); setSiriBusy(false); return; }
+      const r = await fetch("https://nutrichat-pwa.vercel.app/api/siri",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ action:"register", key:siriKey, accessToken:session.access_token, refreshToken:session.refresh_token })
+      });
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||"Link failed");
+      setSiriStatus("✓ Siri linked to your account! Set up the Shortcut below (one time).");
+    } catch(err){ setSiriStatus(`⚠️ ${err.message}`); }
+    setSiriBusy(false);
+  };
+
   const remaining = {
     calories: Math.max(0, settings.calGoal - totals.calories),
     protein: Math.max(0, settings.proteinGoal - totals.protein),
@@ -2221,6 +2246,23 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
 
           {supabaseEnabled&&session&&(
             <>
+              <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>🎙️ Siri Hands-Free Logging</div>
+              <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
+                <div style={{fontSize:13,color:t.muted,lineHeight:1.6,marginBottom:12}}>
+                  Say <span style={{color:t.text,fontWeight:600}}>"Hey Siri, log food"</span> — Siri reads it back, you say yes, and it's added to today's diary. Works for food and weight, fully hands-free.
+                </div>
+                <button onClick={linkSiri} disabled={siriBusy}
+                  style={{width:"100%",background:t.accent,color:t.accentText,border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:700,cursor:siriBusy?"wait":"pointer",opacity:siriBusy?0.6:1}}>
+                  {siriBusy?"Linking…":"🔗 Link Siri to my account"}
+                </button>
+                {siriStatus&&<div style={{marginTop:10,fontSize:12,color:siriStatus.startsWith("⚠️")?"#f87171":t.accent,lineHeight:1.5}}>{siriStatus}</div>}
+                <div style={{marginTop:14,fontSize:12,color:t.muted,marginBottom:6}}>Your Siri key (tap to copy — you'll paste it into the Shortcut once):</div>
+                <div onClick={()=>{navigator.clipboard?.writeText(siriKey); setSiriStatus("✓ Key copied to clipboard.");}}
+                  style={{background:t.card2,border:`1px dashed ${t.border}`,borderRadius:10,padding:"10px 12px",fontSize:12,fontFamily:"monospace",color:t.text,wordBreak:"break-all",cursor:"pointer"}}>
+                  {siriKey}
+                </div>
+              </div>
+
               <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>👤 Account</div>
               <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
                 <div style={{fontSize:13,color:t.muted,marginBottom:4}}>Signed in as</div>
