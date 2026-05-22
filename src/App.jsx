@@ -858,7 +858,7 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
     let cancelled = false;
     (async()=>{
       const { data } = await supabase.from("user_state")
-        .select("data, settings, weight, bodyfat")
+        .select("data, settings, weight, bodyfat, known_foods")
         .eq("user_id", session.user.id).maybeSingle();
       if(cancelled) return;
       if(data){
@@ -866,6 +866,16 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
         if(data.settings) setSettings(s=>({...s, ...data.settings}));
         setWeightLog(Array.isArray(data.weight)?data.weight:[]);
         setBodyFatLog(Array.isArray(data.bodyfat)?data.bodyfat:[]);
+        // Merge cloud + local learned foods so neither device loses its memory
+        if(data.known_foods && typeof data.known_foods==="object" && Object.keys(data.known_foods).length){
+          setKnownFoods(prev=>{
+            const merged={...data.known_foods};
+            for(const [k,v] of Object.entries(prev||{})){
+              merged[k]=merged[k]?{...merged[k],count:Math.max(v.count||0,merged[k].count||0)}:v;
+            }
+            return merged;
+          });
+        }
       } else {
         // New account → start empty (per fresh-start choice)
         setAllData({}); setWeightLog([]); setBodyFatLog([]);
@@ -882,12 +892,12 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
     cloudSyncTimer.current = setTimeout(()=>{
       supabase.from("user_state").upsert({
         user_id: session.user.id,
-        data: allData, settings, weight: weightLog, bodyfat: bodyFatLog,
+        data: allData, settings, weight: weightLog, bodyfat: bodyFatLog, known_foods: knownFoods,
         updated_at: new Date().toISOString(),
       }).then(({error})=>{ if(error) console.error("[NutriChat sync]", error.message); });
     }, 1500);
     return ()=>clearTimeout(cloudSyncTimer.current);
-  },[allData, settings, weightLog, bodyFatLog, session, cloudLoaded]);
+  },[allData, settings, weightLog, bodyFatLog, knownFoods, session, cloudLoaded]);
 
   const signInEmail = async()=>{
     if(!authEmail || !authPassword){ setAuthError("Enter email and password"); return; }

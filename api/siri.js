@@ -62,13 +62,18 @@ async function freshSession(siriKey) {
   return { accessToken: s.access_token, userId: s.user?.id || rec.userId, timezone };
 }
 
-async function parseWithClaude(text) {
-  const system = `You convert a short spoken phrase into a food log or weight entry. Respond with ONLY valid JSON (no markdown, no extra text):
+async function parseWithClaude(text, knownFoods) {
+  let system = `You convert a short spoken phrase into a food log or weight entry. Respond with ONLY valid JSON (no markdown, no extra text):
 {"kind":"food"|"weight"|"both"|"none","foods":[{"name":"","amount":"","calories":0,"protein":0,"carbs":0,"fat":0}],"weightKg":null,"summary":""}
 - Food: populate "foods" with realistic estimates; use chain menu data when a brand is named (McDonald's, Chipotle, etc.).
 - Weight: set weightKg as a number (convert lbs to kg by dividing by 2.205).
 - "summary" is a SHORT natural read-back of what you understood, e.g. "a Big Mac and a large fries, about 900 calories" or "your weight, 73 kilos".
 - If nothing is identifiable, kind "none" and summary "".`;
+  const top = Object.values(knownFoods || {}).sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 25);
+  if (top.length) {
+    system += `\n\nUSER'S FREQUENT FOODS — if the user mentions one of these (or an obvious match/abbreviation), REUSE these exact numbers instead of estimating:\n` +
+      top.map((f) => `- ${f.name} (${f.amount}): ${f.calories} cal, P${f.protein} C${f.carbs} F${f.fat}`).join("\n");
+  }
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
@@ -81,11 +86,11 @@ async function parseWithClaude(text) {
 }
 
 async function readState(accessToken, userId) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${userId}&select=data,weight`, {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${userId}&select=data,weight,known_foods`, {
     headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${accessToken}` },
   });
   const rows = await r.json();
-  return Array.isArray(rows) && rows[0] ? rows[0] : { data: {}, weight: [] };
+  return Array.isArray(rows) && rows[0] ? rows[0] : { data: {}, weight: [], known_foods: {} };
 }
 
 async function writeState(accessToken, userId, patch) {
@@ -132,8 +137,15 @@ export default async function handler(req, res) {
       if (!key || !text) return res.status(400).json({ error: "Missing key or text" });
       const sess = await freshSession(key);
       if (!sess) return res.status(401).json({ error: "Siri key not linked. Re-run Siri setup in the app.", speak: "Your NutriChat Siri setup needs refreshing. Open the app and set it up again." });
+      // Pull the user's learned foods so Siri reuses them too
+      let known = {};
+      try {
+        const sr = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${sess.userId}&select=known_foods`, { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${sess.accessToken}` } });
+        const rows = await sr.json();
+        known = rows?.[0]?.known_foods || {};
+      } catch {}
       let parsed;
-      try { parsed = await parseWithClaude(text); } catch { return res.status(200).json({ found: false, speak: "Sorry, I couldn't work that out. Try again." }); }
+      try { parsed = await parseWithClaude(text, known); } catch { return res.status(200).json({ found: false, speak: "Sorry, I couldn't work that out. Try again." }); }
       if (!parsed || parsed.kind === "none" || (!parsed.foods?.length && !parsed.weightKg)) {
         return res.status(200).json({ found: false, speak: "I couldn't find any food or weight in that. Try again." });
       }
@@ -163,6 +175,14 @@ export default async function handler(req, res) {
         day.foods = [...day.foods, ...pending.foods.map((f) => ({ ...f, time }))];
         data[date] = day;
         patch.data = data;
+        // Remember these foods too (so future logs reuse them)
+        const kf = state.known_foods && typeof state.known_foods === "object" ? { ...state.known_foods } : {};
+        for (const f of pending.foods) {
+          if (!f?.name) continue;
+          const k = f.name.trim().toLowerCase();
+          kf[k] = { name: f.name, amount: f.amount || "1 serving", calories: f.calories, protein: f.protein || 0, carbs: f.carbs || 0, fat: f.fat || 0, count: (kf[k]?.count || 0) + 1 };
+        }
+        patch.known_foods = kf;
         spoke.push(pending.foods.map((f) => f.name).join(" and "));
       }
       if (pending.weightKg) {
