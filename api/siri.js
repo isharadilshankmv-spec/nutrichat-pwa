@@ -8,7 +8,10 @@
 // Auth model: the Siri key maps to the user's (rotating) Supabase refresh token in
 // Upstash. Each call mints a fresh access token, so writes obey row-level security.
 
-const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+// Strip a trailing slash AND an accidentally-included /rest|auth|storage/v1 suffix
+// (the env var may hold the REST URL rather than the base project URL).
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "")
+  .trim().replace(/\/+$/, "").replace(/\/(rest|auth|storage)\/v1$/, "").replace(/\/+$/, "");
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 const KV_URL = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
