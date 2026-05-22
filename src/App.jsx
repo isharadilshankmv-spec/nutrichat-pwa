@@ -915,29 +915,20 @@ Suggest 3 meals or snacks that fit this budget. Consider it's ${new Date().getHo
         foundBarcode = true;
         controls?.stop();
         const code = result.getText();
-        setBarcodeStatus(`Found barcode — looking up product...`);
+        setBarcodeStatus(`Found barcode ${code} — looking up product...`);
         try {
-          const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
+          // Look up via our backend proxy (handles User-Agent + AU database fallback)
+          const res = await fetch(`https://nutrichat-pwa.vercel.app/api/barcode?code=${encodeURIComponent(code)}`);
           const data = await res.json();
-          if(data.status===1){
-            const p=data.product, n=p.nutriments||{};
-            const servG=parseFloat(p.serving_quantity)||100, fac=servG/100;
-            const food={
-              name:p.product_name||"Scanned Product",
-              amount:p.serving_size||`${servG}g`,
-              calories:Math.round((n["energy-kcal_100g"]||0)*fac),
-              protein:Math.round((n.proteins_100g||0)*fac*10)/10,
-              carbs:Math.round((n.carbohydrates_100g||0)*fac*10)/10,
-              fat:Math.round((n.fat_100g||0)*fac*10)/10,
-            };
+          if(data.found && data.food){
             stopBarcode(); setTab("chat");
             // Ask for confirmation before adding (consistent with voice/photo)
-            setMessages(prev=>[...prev,{role:"assistant",text:`🔍 Scanned: ${food.name}\n\nAdd this to your diary?`,foods:[food],pendingConfirm:true}]);
+            setMessages(prev=>[...prev,{role:"assistant",text:`🔍 Scanned: ${data.food.name}\n\nAdd this to your diary?`,foods:[data.food],pendingConfirm:true}]);
           } else {
-            setBarcodeStatus("Product not found in database. Try another item.");
+            setBarcodeStatus(`Barcode ${code} isn't in the food database. Tip: close this and just describe it in chat (e.g. "Tim Tams, 2 biscuits") or snap a photo.`);
             foundBarcode = false; // allow retry
           }
-        } catch { setBarcodeStatus("Lookup failed — try again."); foundBarcode=false; }
+        } catch { setBarcodeStatus("Lookup failed — check your connection and try again."); foundBarcode=false; }
       });
       barcodeControlsRef.current = controls;
     } catch(e) { setBarcodeStatus("Camera access denied."); setBarcodeActive(false); }
