@@ -74,9 +74,14 @@ export default async function handler(req, res) {
   const cLeft = left(s.carbsGoal || 250, eaten.c);
   const fLeft = left(s.fatGoal || 65, eaten.fa);
 
-  const system = `You are a nutrition coach. The user just arrived at "${restaurant}". Today they have these remaining for their goal: ${calLeft} calories, ${pLeft}g protein, ${cLeft}g carbs, ${fLeft}g fat.
-Suggest 2-3 SPECIFIC menu items from ${restaurant} that fit within ${calLeft} calories and favour protein. If you genuinely don't know this place's menu, say so briefly and give a general tip for ~${calLeft} cal with high protein.
-Respond ONLY as JSON (no markdown): {"title":"short title with the restaurant name","body":"<=230 char suggestion, plain text, friendly"}`;
+  const system = `You are a friendly nutrition coach. The user just arrived at "${restaurant}". They have left for today's goal: ${calLeft} calories, ${pLeft}g protein, ${cLeft}g carbs, ${fLeft}g fat.
+
+If you KNOW this restaurant's menu (a chain you're confident about): suggest 2-3 specific items that fit within ${calLeft} calories and favour protein, with rough calories each.
+
+If you do NOT know this place's menu (e.g. a local or independent spot): do NOT invent menu items. Instead give brief, mindful guidance for their remaining ${calLeft} cal and ${pLeft}g protein — e.g. lean/grilled over fried, mind the portion, prioritise protein, go easy if calories are tight.
+
+ALWAYS end with a short nudge to log whatever they order in NutriChat.
+Respond ONLY as JSON (no markdown): {"title":"short title incl. the restaurant name","body":"<=230 chars, plain text, warm and practical"}`;
 
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -90,10 +95,10 @@ Respond ONLY as JSON (no markdown): {"title":"short title with the restaurant na
     try { out = JSON.parse(raw); } catch { out = { title: `🍴 ${restaurant}`, body: raw.slice(0, 230) }; }
     return res.status(200).json({
       title: out.title || `🍴 ${restaurant}`,
-      body: out.body || `You have ~${calLeft} cal left — aim for a high-protein option.`,
+      body: out.body || `You have ~${calLeft} cal and ${pLeft}g protein left — pick something lean and high-protein, and log it in NutriChat after.`,
       remaining: { calLeft, pLeft, cLeft, fLeft },
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message, title: `🍴 ${restaurant}`, body: `You have about ${calLeft} calories and ${pLeft}g protein left today.` });
+    return res.status(500).json({ error: err.message, title: `🍴 ${restaurant}`, body: `You have about ${calLeft} calories and ${pLeft}g protein left today — choose something lean and remember to log it in NutriChat.` });
   }
 }
