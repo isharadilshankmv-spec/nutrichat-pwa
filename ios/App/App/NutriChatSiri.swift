@@ -44,7 +44,7 @@ struct LogFoodIntent: AppIntent {
     // Run in the background — don't open the app.
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "What did you eat or weigh?", requestValueDialog: "What did you eat or weigh?")
+    @Parameter(title: "What did you eat or weigh?", requestValueDialog: "What did you eat — or what's your weight?")
     var phrase: String
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -58,7 +58,7 @@ struct LogFoodIntent: AppIntent {
 
         // If nothing recognised, ask once more (conversational retry).
         if !((parsed["found"] as? Bool) ?? false) {
-            text = try await $phrase.requestValue("I didn't quite catch that. What did you eat, or what's your weight?")
+            text = try await $phrase.requestValue("Sorry, I didn't catch that. What did you eat, or what do you weigh?")
             parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text, date: NutriChatAPI.localDate)
         }
 
@@ -72,7 +72,7 @@ struct LogFoodIntent: AppIntent {
         do {
             try await requestConfirmation(result: .result(dialog: "\(speak)"))
         } catch {
-            return .result(dialog: "No worries, I won't add it.")
+            return .result(dialog: "No worries — I won't log it.")
         }
 
         // 3) Confirmed → commit to the diary.

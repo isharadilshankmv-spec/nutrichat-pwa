@@ -164,11 +164,11 @@ export default async function handler(req, res) {
       let parsed;
       try { parsed = await parseWithClaude(text, known); } catch { return res.status(200).json({ found: false, speak: "Sorry, I couldn't work that out. Try again." }); }
       if (!parsed || parsed.kind === "none" || (!parsed.foods?.length && !parsed.weightKg)) {
-        return res.status(200).json({ found: false, speak: "I couldn't find any food or weight in that. Try again." });
+        return res.status(200).json({ found: false, speak: "Hmm, I didn't catch a food or weight in that. Mind trying again?" });
       }
       const date = req.body.date || localDate(sess.timezone);
       await kvSet("siripending:" + key, { foods: parsed.foods || [], weightKg: parsed.weightKg || null, date }, 300);
-      return res.status(200).json({ found: true, summary: parsed.summary || "that", speak: `${parsed.summary || "that"}. Should I add it?` });
+      return res.status(200).json({ found: true, summary: parsed.summary || "that", speak: `${parsed.summary || "that"}. Want me to log it?` });
     }
 
     // ── COMMIT (Shortcut: user said yes) ──
@@ -213,7 +213,7 @@ export default async function handler(req, res) {
       if (!Object.keys(patch).length) return res.status(200).json({ ok: false, speak: "Nothing to add." });
       await writeState(sess.accessToken, sess.userId, patch);
       await kvDel("siripending:" + key);
-      return res.status(200).json({ ok: true, speak: `Added ${spoke.join(" and ")} to your diary.` });
+      return res.status(200).json({ ok: true, speak: `Done! I've logged ${spoke.join(" and ")}.` });
     }
 
     // ── REMAINING (Shortcut/Siri: how much is left today) ──
@@ -236,10 +236,10 @@ export default async function handler(req, res) {
       const fGoal = Number(s.fatGoal) || 65;
       const left = (g, v) => Math.max(0, Math.round(g - v));
       const calLeft = left(calGoal, eaten.cal);
-      const lead = calLeft > 0
-        ? `You have about ${calLeft} calories left today`
-        : `You've hit your ${calGoal} calorie goal for today`;
-      const speak = `${lead} — ${left(pGoal, eaten.p)} grams of protein, ${left(cGoal, eaten.c)} carbs, and ${left(fGoal, eaten.fa)} fat to go.`;
+      const pl = left(pGoal, eaten.p), cl = left(cGoal, eaten.c), fl = left(fGoal, eaten.fa);
+      const speak = calLeft > 0
+        ? `You've got ${calLeft} calories left today, with ${pl} grams of protein, ${cl} of carbs, and ${fl} of fat to go.`
+        : `Nice — you've hit your ${calGoal} calorie goal for today. You're ${pl} grams of protein, ${cl} carbs, and ${fl} fat under your targets.`;
       return res.status(200).json({ ok: true, speak });
     }
 
