@@ -43,7 +43,15 @@ struct LogFoodIntent: AppIntent {
         }
 
         // 1) Parse what was said (food or weight) — server reads it back.
-        let parsed = try await NutriChatAPI.call(action: "parse", key: key, text: phrase)
+        var text = phrase
+        var parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text)
+
+        // If nothing recognised, ask once more (conversational retry).
+        if !((parsed["found"] as? Bool) ?? false) {
+            text = try await $phrase.requestValue("I didn't quite catch that. What did you eat, or what's your weight?")
+            parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text)
+        }
+
         let found = (parsed["found"] as? Bool) ?? false
         let speak = (parsed["speak"] as? String) ?? "I couldn't catch that."
         if !found {
@@ -54,7 +62,7 @@ struct LogFoodIntent: AppIntent {
         do {
             try await requestConfirmation(result: .result(dialog: "\(speak)"))
         } catch {
-            return .result(dialog: "Okay, I won't add it.")
+            return .result(dialog: "No worries, I won't add it.")
         }
 
         // 3) Confirmed → commit to the diary.
@@ -69,10 +77,15 @@ struct NutriChatAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: LogFoodIntent(),
+            // Apple only allows fixed-list (AppEnum) values inline in phrases, not free
+            // text — so these triggers prompt, then Siri asks what you ate / your weight.
             phrases: [
                 "Log food in \(.applicationName)",
                 "Log a meal in \(.applicationName)",
-                "Add food in \(.applicationName)"
+                "I ate something in \(.applicationName)",
+                "Log my weight in \(.applicationName)",
+                "Track my food in \(.applicationName)",
+                "Tell \(.applicationName) what I ate"
             ],
             shortTitle: "Log Food",
             systemImageName: "fork.knife"
