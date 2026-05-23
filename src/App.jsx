@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase, supabaseEnabled } from "./supabase";
+import { Preferences } from "@capacitor/preferences";
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 const load = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)||"null") ?? fb; } catch { return fb; } };
@@ -26,6 +27,7 @@ const MODEL = "claude-sonnet-4-5";
 const IS_NATIVE = typeof window !== "undefined" && !!window.Capacitor?.isNativePlatform?.();
 const API_URL = IS_NATIVE ? "https://nutrichat-pwa.vercel.app/api/chat" : "/api/chat";
 const GOOGLE_AUTH_ENABLED = false; // flip to true once Google OAuth is configured in Supabase
+const TAB_ORDER = ["chat","smart","log","weight","progress","body","calendar","settings"]; // left→right swipe order
 
 const UNIVERSAL_PROMPT = `You are NutriChat — a calorie & macro tracker. The user just told you (by voice or text) about food they ate or their weight.
 
@@ -237,6 +239,25 @@ export default function App() {
   const [selectedDay, setSelectedDay] = useState(null);
   const fileRef = useRef(null);
   const bottomRef = useRef(null);
+
+  // Swipe left/right to move to the adjacent tab
+  const swipeStart = useRef(null);
+  const onSwipeStart = (e)=>{
+    const tt=e.touches?.[0]; if(!tt) return;
+    swipeStart.current={ x:tt.clientX, y:tt.clientY, time:Date.now(), target:e.target };
+  };
+  const onSwipeEnd = (e)=>{
+    const s=swipeStart.current; swipeStart.current=null;
+    if(!s || barcodeActive) return;
+    // ignore swipes that begin on interactive controls (sliders, inputs, buttons, links)
+    if(s.target?.closest?.('input,textarea,select,button,a,[role="slider"]')) return;
+    const tt=e.changedTouches?.[0]; if(!tt) return;
+    const dx=tt.clientX-s.x, dy=tt.clientY-s.y, dt=Date.now()-s.time;
+    if(dt>700 || Math.abs(dx)<60 || Math.abs(dx) < Math.abs(dy)*1.8) return; // not a clean horizontal swipe
+    const idx=TAB_ORDER.indexOf(tab);
+    if(dx<0 && idx<TAB_ORDER.length-1){ setTab(TAB_ORDER[idx+1]); setSelectedDay(null); }
+    else if(dx>0 && idx>0){ setTab(TAB_ORDER[idx-1]); setSelectedDay(null); }
+  };
 
   // Native keyboard handling: with resize:"none" the webview never shifts (no black
   // margin / no zoom-stuck). We lift the layout by the keyboard height instead.
@@ -559,6 +580,8 @@ export default function App() {
   });
   const [siriBusy, setSiriBusy] = useState(false);
   const [siriStatus, setSiriStatus] = useState("");
+  // Persist the Siri key to native storage so the built-in App Intent can read it
+  useEffect(()=>{ Preferences.set({key:"siri_key", value:siriKey}).catch(()=>{}); },[siriKey]);
   const linkSiri = async()=>{
     if(!supabaseEnabled){ setSiriStatus("⚠️ Sign in first to link Siri."); return; }
     setSiriBusy(true); setSiriStatus("");
@@ -571,7 +594,8 @@ export default function App() {
       });
       const d = await r.json();
       if(!r.ok) throw new Error(d.error||"Link failed");
-      setSiriStatus("✓ Siri linked to your account! Set up the Shortcut below (one time).");
+      await Preferences.set({key:"siri_key", value:siriKey});
+      setSiriStatus("✓ Siri linked! Just say “Hey Siri, log food in NutriChat.”");
     } catch(err){ setSiriStatus(`⚠️ ${err.message}`); }
     setSiriBusy(false);
   };
@@ -1130,7 +1154,8 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
   }
 
   return (
-    <div style={{background:t.bg,height:kbOffset>0?`calc(100% - ${kbOffset}px)`:"100%",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflow:"hidden",transition:"height 0.2s ease"}}>
+    <div onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd}
+      style={{background:t.bg,height:kbOffset>0?`calc(100% - ${kbOffset}px)`:"100%",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:t.text,display:"flex",flexDirection:"column",width:"100%",maxWidth:480,margin:"0 auto",overflow:"hidden",transition:"height 0.2s ease"}}>
 
       {/* ── HEADER ── */}
       <div style={{paddingTop:"calc(env(safe-area-inset-top) + 14px)",paddingLeft:16,paddingRight:16,paddingBottom:0,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,zIndex:10}}>
@@ -1146,6 +1171,14 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
             <MacroBar label="Protein" value={totals.protein} max={settings.proteinGoal} color={t.protein} t={t}/>
             <MacroBar label="Carbs" value={totals.carbs} max={settings.carbsGoal} color={t.carbs} t={t}/>
             <MacroBar label="Fat" value={totals.fat} max={settings.fatGoal} color={t.fat} t={t}/>
+            {(()=>{
+              const left = Math.round(settings.calGoal - totals.calories);
+              return (
+                <div style={{fontSize:11,marginTop:5,fontWeight:700,color:left>=0?(t.dark?t.accent:"#1a1a1a"):"#f87171"}}>
+                  {left>=0 ? `🔥 ${left} cal left today` : `⚠️ ${Math.abs(left)} cal over`}
+                </div>
+              );
+            })()}
           </div>
         </div>
         <div style={{display:"flex"}}>
