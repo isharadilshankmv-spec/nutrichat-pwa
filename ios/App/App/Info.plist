@@ -26,6 +26,10 @@
 	<string>NutriChat uses your camera to scan food barcodes and analyse meals.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>NutriChat needs access to your microphone to log food via voice.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NutriChat uses your location to save your favourite restaurants.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>NutriChat watches for your saved favourite restaurants so it can suggest what fits your macros when you arrive.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>NutriChat needs access to your photos to analyse food images.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

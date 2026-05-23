@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase, supabaseEnabled } from "./supabase";
 import { Preferences } from "@capacitor/preferences";
+import { Geolocation } from "@capacitor/geolocation";
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 const load = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)||"null") ?? fb; } catch { return fb; } };
@@ -598,6 +599,46 @@ export default function App() {
       setSiriStatus("✓ Siri linked! Just say “Hey Siri, log food in NutriChat.”");
     } catch(err){ setSiriStatus(`⚠️ ${err.message}`); }
     setSiriBusy(false);
+  };
+
+  // ── Eating-out: favorite restaurants + AI suggestions ──
+  const [favRestaurants, setFavRestaurants] = useState(()=>load("nc_fav_restaurants",[]));
+  const [restoName, setRestoName] = useState("");
+  const [restoBusy, setRestoBusy] = useState(false);
+  const [restoSuggestion, setRestoSuggestion] = useState("");
+  const [restoStatus, setRestoStatus] = useState("");
+  useEffect(()=>{ save("nc_fav_restaurants",favRestaurants); Preferences.set({key:"fav_restaurants", value:JSON.stringify(favRestaurants)}).catch(()=>{}); },[favRestaurants]);
+
+  const suggestForRestaurant = async(name)=>{
+    const r=(name||"").trim();
+    if(!r){ setRestoStatus("Enter or pick a restaurant first."); return; }
+    if(!supabaseEnabled){ setRestoStatus("⚠️ Sign in + link Siri first."); return; }
+    setRestoBusy(true); setRestoSuggestion(""); setRestoStatus("");
+    try {
+      const res = await fetch("https://nutrichat-pwa.vercel.app/api/restaurant-suggest",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ key:siriKey, restaurant:r, date:todayKey() })
+      });
+      const d = await res.json();
+      if(!res.ok && !d.body) throw new Error(d.error||"Couldn't get suggestions");
+      setRestoSuggestion(`${d.title||r}\n\n${d.body||""}`);
+    } catch(err){ setRestoStatus(`⚠️ ${err.message}`); }
+    setRestoBusy(false);
+  };
+
+  const addFavRestaurant = async()=>{
+    const name=(restoName||"").trim();
+    if(!name){ setRestoStatus("Type the restaurant name first, then add this spot."); return; }
+    setRestoBusy(true); setRestoStatus("Getting your location…");
+    try {
+      const perm = await Geolocation.requestPermissions();
+      if(perm.location==="denied"){ setRestoStatus("⚠️ Location permission denied."); setRestoBusy(false); return; }
+      const pos = await Geolocation.getCurrentPosition({enableHighAccuracy:true,timeout:15000});
+      const entry={ name, lat:pos.coords.latitude, lng:pos.coords.longitude };
+      setFavRestaurants(prev=>[...prev.filter(x=>x.name.toLowerCase()!==name.toLowerCase()), entry]);
+      setRestoName(""); setRestoStatus(`✓ Saved “${name}” — you'll get a heads-up when you arrive (after the next rebuild).`);
+    } catch(err){ setRestoStatus(`⚠️ ${err.message||"Couldn't get location"}`); }
+    setRestoBusy(false);
   };
 
   const remaining = {
@@ -2321,6 +2362,43 @@ If image is not suitable (not a person, fully clothed, too dark): {"bodyFat": nu
                   style={{background:t.card2,border:`1px dashed ${t.border}`,borderRadius:10,padding:"10px 12px",fontSize:12,fontFamily:"monospace",color:t.text,wordBreak:"break-all",cursor:"pointer"}}>
                   {siriKey}
                 </div>
+              </div>
+
+              <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>🍴 Eating Out</div>
+              <div style={{background:t.card,border:`1px solid ${t.border}`,borderRadius:14,padding:14,marginBottom:16}}>
+                <div style={{fontSize:13,color:t.muted,lineHeight:1.6,marginBottom:12}}>
+                  Heading to a restaurant? Get items that fit your <b style={{color:t.text}}>remaining</b> calories &amp; macros today. Save your favourite spots and you'll get a heads-up notification when you arrive.
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:10}}>
+                  <input value={restoName} placeholder="e.g. McDonald's, Nando's"
+                    onChange={e=>setRestoName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter")suggestForRestaurant(restoName);}}
+                    style={{flex:1,background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 12px",color:t.text,fontSize:16,outline:"none",boxSizing:"border-box"}}/>
+                  <button onClick={()=>suggestForRestaurant(restoName)} disabled={restoBusy||!restoName.trim()}
+                    style={{flexShrink:0,background:t.accent,color:t.accentText,border:"none",borderRadius:10,padding:"0 14px",fontSize:13,fontWeight:700,cursor:restoBusy?"wait":"pointer",opacity:(restoBusy||!restoName.trim())?0.5:1}}>
+                    What fits?
+                  </button>
+                </div>
+                {restoBusy&&<div style={{fontSize:12,color:t.muted,marginBottom:8}}>Thinking…</div>}
+                {restoSuggestion&&<div style={{background:t.card2,border:`1px solid ${t.border}`,borderRadius:10,padding:12,fontSize:13,color:t.text,lineHeight:1.6,whiteSpace:"pre-wrap",marginBottom:10}}>{restoSuggestion}</div>}
+
+                <button onClick={addFavRestaurant} disabled={restoBusy||!restoName.trim()}
+                  style={{width:"100%",background:"transparent",border:`1px solid ${t.border}`,color:t.text,borderRadius:10,padding:"10px",fontSize:13,fontWeight:600,cursor:restoBusy?"wait":"pointer",opacity:(restoBusy||!restoName.trim())?0.5:1,marginBottom:8}}>
+                  📍 Save “{restoName||"this spot"}” as a favourite (uses current location)
+                </button>
+                {favRestaurants.length>0&&(
+                  <div style={{marginTop:6}}>
+                    <div style={{fontSize:11,color:t.muted,marginBottom:6}}>Saved spots (geofenced):</div>
+                    {favRestaurants.map((f,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:t.card2,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                        <span style={{fontSize:13,fontWeight:600}}>📍 {f.name}</span>
+                        <button onClick={()=>setFavRestaurants(prev=>prev.filter(x=>x!==f))}
+                          style={{background:"transparent",border:`1px solid ${t.border}`,color:"#f87171",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {restoStatus&&<div style={{marginTop:8,fontSize:12,color:restoStatus.startsWith("⚠️")?"#f87171":t.accent,lineHeight:1.5}}>{restoStatus}</div>}
               </div>
 
               <div style={{fontWeight:700,fontSize:11,color:t.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>👤 Account</div>

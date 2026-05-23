@@ -4,17 +4,26 @@ PODS:
   - CapacitorCommunitySpeechRecognition (7.0.1):
     - Capacitor
   - CapacitorCordova (7.6.5)
+  - CapacitorGeolocation (7.1.8):
+    - Capacitor
+    - IONGeolocationLib (= 1.0.1)
   - CapacitorKeyboard (7.0.6):
     - Capacitor
   - CapacitorPreferences (7.0.4):
     - Capacitor
+  - IONGeolocationLib (1.0.1)
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorCommunitySpeechRecognition (from `../../node_modules/@capacitor-community/speech-recognition`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorKeyboard (from `../../node_modules/@capacitor/keyboard`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
+
+SPEC REPOS:
+  trunk:
+    - IONGeolocationLib
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -23,6 +32,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor-community/speech-recognition"
   CapacitorCordova:
     :path: "../../node_modules/@capacitor/ios"
+  CapacitorGeolocation:
+    :path: "../../node_modules/@capacitor/geolocation"
   CapacitorKeyboard:
     :path: "../../node_modules/@capacitor/keyboard"
   CapacitorPreferences:
@@ -32,9 +43,11 @@ SPEC CHECKSUMS:
   Capacitor: e9708b186e71dc45f9b2ee72e826b7389fb79ff2
   CapacitorCommunitySpeechRecognition: 3e03566c44c2bb3b52391a33d4518b1adbdeb38f
   CapacitorCordova: 2b36392a7292c3c451dcae154185ee8804d7b6b3
+  CapacitorGeolocation: ab54d708e2fcf99a7bafe0219eaa6f7a932f001a
   CapacitorKeyboard: a2e0869edd229490ce36aed2549c0d6b95e27ee8
   CapacitorPreferences: 69d9991307507aeab8ef8019c10b9babfda0e9ca
+  IONGeolocationLib: 20f9d0248a0b5264511fb57a37e25dd2badf797a
 
-PODFILE CHECKSUM: f546b87521406eb1ae3a1ca16708f9fcfdfdd567
+PODFILE CHECKSUM: 139aed23de92a5dbfefcde203e98fa1582612d55
 
 COCOAPODS: 1.16.2
