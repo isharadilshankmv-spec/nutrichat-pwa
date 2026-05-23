@@ -86,24 +86,41 @@ async function parseWithClaude(text, knownFoods) {
 }
 
 async function readState(accessToken, userId) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${userId}&select=data,weight,known_foods`, {
-    headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${accessToken}` },
-  });
-  const rows = await r.json();
-  return Array.isArray(rows) && rows[0] ? rows[0] : { data: {}, weight: [], known_foods: {} };
+  const fetchCols = async (cols) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${userId}&select=${cols}`, {
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${accessToken}` },
+    });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return Array.isArray(rows) ? (rows[0] || {}) : null;
+  };
+  // known_foods column may not exist yet — fall back gracefully.
+  let row = await fetchCols("data,weight,known_foods,settings");
+  if (row === null) row = await fetchCols("data,weight,settings");
+  return row || { data: {}, weight: [], known_foods: {}, settings: {} };
 }
 
 async function writeState(accessToken, userId, patch) {
-  await fetch(`${SUPABASE_URL}/rest/v1/user_state`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON,
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=minimal",
-    },
-    body: JSON.stringify({ user_id: userId, ...patch, updated_at: new Date().toISOString() }),
-  });
+  const post = async (p) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/user_state`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify({ user_id: userId, ...p, updated_at: new Date().toISOString() }),
+    });
+    return r.ok;
+  };
+  let ok = await post(patch);
+  // If known_foods column doesn't exist yet, retry without it so the log still saves.
+  if (!ok && patch.known_foods) {
+    const { known_foods, ...rest } = patch;
+    ok = await post(rest);
+  }
+  return ok;
 }
 
 export default async function handler(req, res) {
@@ -197,6 +214,33 @@ export default async function handler(req, res) {
       await writeState(sess.accessToken, sess.userId, patch);
       await kvDel("siripending:" + key);
       return res.status(200).json({ ok: true, speak: `Added ${spoke.join(" and ")} to your diary.` });
+    }
+
+    // ── REMAINING (Shortcut/Siri: how much is left today) ──
+    if (action === "remaining") {
+      const { key } = req.body;
+      if (!key) return res.status(400).json({ error: "Missing key" });
+      const sess = await freshSession(key);
+      if (!sess) return res.status(401).json({ error: "not linked", speak: "Open NutriChat and tap Link Siri first." });
+      const state = await readState(sess.accessToken, sess.userId);
+      const date = req.body.date || new Date().toISOString().slice(0, 10);
+      const foods = (state.data && state.data[date] && Array.isArray(state.data[date].foods)) ? state.data[date].foods : [];
+      const eaten = foods.reduce((a, f) => ({
+        cal: a.cal + (Number(f.calories) || 0), p: a.p + (Number(f.protein) || 0),
+        c: a.c + (Number(f.carbs) || 0), fa: a.fa + (Number(f.fat) || 0),
+      }), { cal: 0, p: 0, c: 0, fa: 0 });
+      const s = state.settings || {};
+      const calGoal = Number(s.calGoal) || 2000;
+      const pGoal = Number(s.proteinGoal) || 150;
+      const cGoal = Number(s.carbsGoal) || 250;
+      const fGoal = Number(s.fatGoal) || 65;
+      const left = (g, v) => Math.max(0, Math.round(g - v));
+      const calLeft = left(calGoal, eaten.cal);
+      const lead = calLeft > 0
+        ? `You have about ${calLeft} calories left today`
+        : `You've hit your ${calGoal} calorie goal for today`;
+      const speak = `${lead} — ${left(pGoal, eaten.p)} grams of protein, ${left(cGoal, eaten.c)} carbs, and ${left(fGoal, eaten.fa)} fat to go.`;
+      return res.status(200).json({ ok: true, speak });
     }
 
     return res.status(400).json({ error: "Unknown action" });

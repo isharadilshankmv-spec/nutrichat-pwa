@@ -9,9 +9,10 @@ import AppIntents
 enum NutriChatAPI {
     static let endpoint = URL(string: "https://nutrichat-pwa.vercel.app/api/siri")!
 
-    static func call(action: String, key: String, text: String?) async throws -> [String: Any] {
+    static func call(action: String, key: String, text: String? = nil, date: String? = nil) async throws -> [String: Any] {
         var body: [String: Any] = ["action": action, "key": key]
         if let text = text { body["text"] = text }
+        if let date = date { body["date"] = date }
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -24,6 +25,15 @@ enum NutriChatAPI {
     static var siriKey: String? {
         let k = UserDefaults.standard.string(forKey: "CapacitorStorage.siri_key")
         return (k?.isEmpty == false) ? k : nil
+    }
+
+    // Today's date in the device's timezone (so logs/queries hit the right day).
+    static var localDate: String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: Date())
     }
 }
 
@@ -44,12 +54,12 @@ struct LogFoodIntent: AppIntent {
 
         // 1) Parse what was said (food or weight) — server reads it back.
         var text = phrase
-        var parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text)
+        var parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text, date: NutriChatAPI.localDate)
 
         // If nothing recognised, ask once more (conversational retry).
         if !((parsed["found"] as? Bool) ?? false) {
             text = try await $phrase.requestValue("I didn't quite catch that. What did you eat, or what's your weight?")
-            parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text)
+            parsed = try await NutriChatAPI.call(action: "parse", key: key, text: text, date: NutriChatAPI.localDate)
         }
 
         let found = (parsed["found"] as? Bool) ?? false
@@ -73,6 +83,22 @@ struct LogFoodIntent: AppIntent {
 }
 
 @available(iOS 16.0, *)
+struct RemainingIntent: AppIntent {
+    static var title: LocalizedStringResource = "What's Left Today"
+    static var description = IntentDescription("Ask how many calories and macros you have left today.")
+    static var openAppWhenRun: Bool = false
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let key = NutriChatAPI.siriKey else {
+            return .result(dialog: "Open NutriChat and tap Link Siri to set this up first.")
+        }
+        let resp = try await NutriChatAPI.call(action: "remaining", key: key, text: nil, date: NutriChatAPI.localDate)
+        let speak = (resp["speak"] as? String) ?? "I couldn't get your totals right now."
+        return .result(dialog: "\(speak)")
+    }
+}
+
+@available(iOS 16.0, *)
 struct NutriChatAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
@@ -89,6 +115,18 @@ struct NutriChatAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Log Food",
             systemImageName: "fork.knife"
+        )
+        AppShortcut(
+            intent: RemainingIntent(),
+            phrases: [
+                "How many calories are left in \(.applicationName)",
+                "What's left in \(.applicationName)",
+                "Calories left in \(.applicationName)",
+                "What are my macros in \(.applicationName)",
+                "How am I doing in \(.applicationName)"
+            ],
+            shortTitle: "What's Left Today",
+            systemImageName: "flame"
         )
     }
 }
